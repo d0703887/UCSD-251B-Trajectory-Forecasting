@@ -49,7 +49,7 @@ def train(model: nn.Module, train_data: torch.tensor, val_data: torch.tensor, co
     model.to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=config['lr'])
     loss_fn = nn.MSELoss()
-    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 3, gamma=0.5)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=config['epoch'], eta_min=1e-7)
     best_loss = float("inf")
 
     for epoch in range(config['epoch']):
@@ -92,7 +92,7 @@ def train(model: nn.Module, train_data: torch.tensor, val_data: torch.tensor, co
         if mean_val_loss < best_loss:
             best_loss = mean_val_loss
             torch.save(model, f"checkpoints/{run.name}")
-        run.log({"Train Loss": mean_train_loss, "Val Loss": mean_val_loss})
+        run.log({"Train Loss": mean_train_loss, "Val Loss": mean_val_loss, "Learning Rate": scheduler.get_last_lr()[0]})
         print(f"Epoch {epoch}: Train Loss = {mean_train_loss:.4f}, Val Loss = {np.mean(val_loss):.4f}\n")
 
 
@@ -106,8 +106,8 @@ if __name__ == "__main__":
               "neighbor_dist": 50,
 
               "batch_size": 16,
-              "lr": 0.0001,
-              "epoch": 20
+              "lr": 1e-4,
+              "epoch": 40
               }
     timestamp = datetime.now().strftime("%Y%m%d_%H%M")
     wandb.login(key="8b3e0d688aad58e8826aa06cbd342439d583cdc0")
