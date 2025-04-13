@@ -1,5 +1,5 @@
-from model import EncoderOnly
-from dataset_visualization import load_dataset
+from models.model import EncoderOnly
+from utils.dataset_visualization import load_dataset
 import torch
 import torch.nn as nn
 from tqdm import tqdm
@@ -49,7 +49,7 @@ def train(model: nn.Module, train_data: torch.tensor, val_data: torch.tensor, co
     model.to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=config['lr'])
     loss_fn = nn.MSELoss()
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=config['epoch'], eta_min=1e-7)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=config['epoch'], eta_min=config['eta_min'])
     best_loss = float("inf")
 
     for epoch in range(config['epoch']):
@@ -91,23 +91,25 @@ def train(model: nn.Module, train_data: torch.tensor, val_data: torch.tensor, co
         mean_train_loss = np.mean(train_loss)
         if mean_val_loss < best_loss:
             best_loss = mean_val_loss
-            torch.save(model, f"checkpoints/{run.name}")
+            torch.save(model.state_dict(), f"checkpoints/{run.name}")
         run.log({"Train Loss": mean_train_loss, "Val Loss": mean_val_loss, "Learning Rate": scheduler.get_last_lr()[0]})
         print(f"Epoch {epoch}: Train Loss = {mean_train_loss:.4f}, Val Loss = {np.mean(val_loss):.4f}\n")
 
 
 if __name__ == "__main__":
-    config = {"embed_dim": 168,
+    config = {"embed_dim": 256,
               "num_head": 8,
               "hidden_dim": 256,
               "dropout": 0.0,
-              "num_layer": 6,
+              "num_layer": 2,
               "output_hidden_dim": 256,
               "neighbor_dist": 50,
+              "use_rope": True,
 
-              "batch_size": 16,
+              "batch_size": 4,
               "lr": 1e-4,
-              "epoch": 40
+              "eta_min": 1e-7,
+              "epoch": 70
               }
     timestamp = datetime.now().strftime("%Y%m%d_%H%M")
     wandb.login(key="8b3e0d688aad58e8826aa06cbd342439d583cdc0")
@@ -119,6 +121,7 @@ if __name__ == "__main__":
     )
 
     model = EncoderOnly(config)
+    # model.load_state_dict(torch.load("checkpoints/20250411_1800_EncoderOnly", weights_only=False).state_dict())
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     train_data = Argoverse('train')
     val_data = Argoverse('val')
