@@ -10,13 +10,15 @@ from datetime import datetime
 
 
 class Argoverse(Dataset):
-    def __init__(self, mode='train'):
+    def __init__(self, mode: str = 'train', split_val: bool = True):
         if mode == 'train':
             self.data = torch.tensor(load_dataset("dataset")[0], dtype=torch.float32)
-            self.data = self.data[:int(len(self.data) * 0.7)]
+            if split_val:
+                self.data = self.data[:int(len(self.data) * 0.7)]
         elif mode == 'val':
             self.data = torch.tensor(load_dataset("dataset")[0], dtype=torch.float32)
-            self.data = self.data[int(len(self.data) * 0.7):]
+            if split_val:
+                self.data = self.data[int(len(self.data) * 0.7):]
         elif mode == 'test':
             self.data = torch.tensor(load_dataset("dataset")[1], dtype=torch.float32)
 
@@ -45,7 +47,7 @@ class Argoverse(Dataset):
         return self.input_traj[idx], self.gt_pos[idx], self.trainable_mask[idx], self.y_mask[idx]
 
 
-def train(model: nn.Module, train_data: torch.tensor, val_data: torch.tensor, config: dict, device: str, run: wandb.sdk.wandb_run.Run):
+def train(model: nn.Module, train_data: torch.tensor, val_data: torch.tensor, config: dict, device: str, run: wandb.sdk.wandb_run.Run, store_each_epoch: bool = False):
     model.to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=config['lr'])
     loss_fn = nn.MSELoss()
@@ -92,6 +94,11 @@ def train(model: nn.Module, train_data: torch.tensor, val_data: torch.tensor, co
         if mean_val_loss < best_loss:
             best_loss = mean_val_loss
             torch.save(model.state_dict(), f"checkpoints/{run.name}")
+
+        if store_each_epoch:
+            if epoch // 2 == 0:
+                torch.save(model.state_dict(), f"checkpoints/{run.name}_{epoch}_{mean_val_loss}")
+
         run.log({"Train Loss": mean_train_loss, "Val Loss": mean_val_loss, "Learning Rate": scheduler.get_last_lr()[0]})
         print(f"Epoch {epoch}: Train Loss = {mean_train_loss:.4f}, Val Loss = {np.mean(val_loss):.4f}\n")
 
@@ -101,15 +108,15 @@ if __name__ == "__main__":
               "num_head": 8,
               "hidden_dim": 256,
               "dropout": 0.0,
-              "num_layer": 2,
+              "num_layer": 8,
               "output_hidden_dim": 256,
               "neighbor_dist": 50,
               "use_rope": True,
 
-              "batch_size": 4,
+              "batch_size": 8,
               "lr": 1e-4,
               "eta_min": 1e-7,
-              "epoch": 70
+              "epoch": 200
               }
     timestamp = datetime.now().strftime("%Y%m%d_%H%M")
     wandb.login(key="8b3e0d688aad58e8826aa06cbd342439d583cdc0")
@@ -121,9 +128,8 @@ if __name__ == "__main__":
     )
 
     model = EncoderOnly(config)
-    # model.load_state_dict(torch.load("checkpoints/20250411_1800_EncoderOnly", weights_only=False).state_dict())
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    train_data = Argoverse('train')
-    val_data = Argoverse('val')
-    train(model, train_data, val_data, config, device, run)
+    train_data = Argoverse('train', False)
+    val_data = Argoverse('val', False)
+    train(model, train_data, val_data, config, device, run, True)
     run.finish()
