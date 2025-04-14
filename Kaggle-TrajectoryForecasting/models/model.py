@@ -19,7 +19,7 @@ def get_temporal_mask(x: torch.tensor, config):
 
     temporal_mask = torch.triu(torch.ones(T, T, dtype=torch.bool, device=x.device), diagonal=1).unsqueeze(0).repeat(N * A, 1, 1)  # (N*A, T, T)
     # temporal_mask = temporal_mask | invalid_mask
-    return temporal_mask.repeat(config['num_head'], 1, 1)
+    return temporal_mask.repeat(config.num_head, 1, 1)
 
 
 def get_social_mask(x: torch.tensor, config):
@@ -39,16 +39,16 @@ def get_social_mask(x: torch.tensor, config):
     pos = x_reshape[:, :, :2]  # (N*T, A, 2)
     dist = torch.sqrt(torch.sum((pos.unsqueeze(2) - pos.unsqueeze(1)) ** 2, dim=-1, keepdim=False))  # (N*T, A, A)
 
-    social_mask = dist > config['neighbor_dist']
+    social_mask = dist > config.neighbor_dist
     #social_mask = social_mask.to(x.device) | invalid_mask
-    return social_mask.repeat(config['num_head'], 1, 1)
+    return social_mask.repeat(config.num_head, 1, 1)
 
 
 class Encoder(nn.Module):
     def __init__(self, config):
         super().__init__()
-        self.num_layer = config['num_layer']
-        self.embedding = nn.Linear(6, config['embed_dim'])
+        self.num_layer = config.num_layer
+        self.embedding = nn.Linear(6, config.embed_dim)
         self.encoder_layer = nn.ModuleList([EncoderLayer(config) for _ in range(self.num_layer)])
 
     def forward(self, x, temporal_mask=None, social_mask=None):
@@ -73,9 +73,9 @@ class EncoderOnly(nn.Module):
         self.config = config
         self.encoder = Encoder(config)
         self.mlp = nn.ModuleList([
-            nn.Linear(config['embed_dim'], config['output_hidden_dim']),
+            nn.Linear(config.embed_dim, config.output_hidden_dim),
             nn.LeakyReLU(),
-            nn.Linear(config['output_hidden_dim'], 120)
+            nn.Linear(config.output_hidden_dim, 120)
         ])
 
     def forward(self, x, trainable_mask):
@@ -87,23 +87,6 @@ class EncoderOnly(nn.Module):
         for layer in self.mlp:
             x = layer(x)
         return x.reshape(x.shape[0], 60, 2)
-
-
-if __name__ == "__main__":
-    config = {"embed_dim": 128,
-              "num_head": 8,
-              "hidden_dim": 256,
-              "dropout": 0.0,
-              "num_layer": 4,
-              "output_hidden_dim": 256,
-              "neighbor_dist": 50
-              }
-    model = EncoderOnly(config)
-    from utils.dataset_visualization import load_dataset
-    _, test_data = load_dataset("../dataset")
-    test_data = torch.tensor(test_data[:2], dtype=torch.float32)
-
-    print(model(test_data))
 
 
 

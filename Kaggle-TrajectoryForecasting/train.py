@@ -7,20 +7,21 @@ from torch.utils.data import Dataset, DataLoader
 import numpy as np
 import wandb
 from datetime import datetime
+import argparse
 
 
 class Argoverse(Dataset):
-    def __init__(self, mode: str = 'train', split_val: bool = True):
+    def __init__(self, mode: str = 'train', split_val: bool = True, dataset_path: str = "dataset"):
         if mode == 'train':
-            self.data = torch.tensor(load_dataset("dataset")[0], dtype=torch.float32)
+            self.data = torch.tensor(load_dataset(dataset_path)[0], dtype=torch.float32)
             if split_val:
                 self.data = self.data[:int(len(self.data) * 0.7)]
         elif mode == 'val':
-            self.data = torch.tensor(load_dataset("dataset")[0], dtype=torch.float32)
+            self.data = torch.tensor(load_dataset(dataset_path)[0], dtype=torch.float32)
             if split_val:
                 self.data = self.data[int(len(self.data) * 0.7):]
         elif mode == 'test':
-            self.data = torch.tensor(load_dataset("dataset")[1], dtype=torch.float32)
+            self.data = torch.tensor(load_dataset(dataset_path)[1], dtype=torch.float32)
 
         self.len = len(self.data)
         total_N, A, T, _ = self.data.shape
@@ -47,16 +48,16 @@ class Argoverse(Dataset):
         return self.input_traj[idx], self.gt_pos[idx], self.trainable_mask[idx], self.y_mask[idx]
 
 
-def train(model: nn.Module, train_data: torch.tensor, val_data: torch.tensor, config: dict, device: str, run: wandb.sdk.wandb_run.Run, store_each_epoch: bool = False):
+def train(model: nn.Module, train_data: torch.tensor, val_data: torch.tensor, config: argparse.Namespace, device: str, run: wandb.sdk.wandb_run.Run, store_each_epoch: bool = False):
     model.to(device)
-    optimizer = torch.optim.Adam(model.parameters(), lr=config['lr'])
+    optimizer = torch.optim.Adam(model.parameters(), lr=config.lr)
     loss_fn = nn.MSELoss()
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=config['epoch'], eta_min=config['eta_min'])
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=70, eta_min=config.eta_min)
     best_loss = float("inf")
 
-    for epoch in range(config['epoch']):
-        train_pbar = tqdm(DataLoader(train_data, batch_size=config['batch_size'], shuffle=True), position=0)
-        val_dataloader = DataLoader(val_data, batch_size=config['batch_size'])
+    for epoch in range(config.epoch):
+        train_pbar = tqdm(DataLoader(train_data, batch_size=config.batch_size, shuffle=True), position=0)
+        val_dataloader = DataLoader(val_data, batch_size=config.batch_size)
         train_loss = []
         val_loss = []
 
@@ -104,20 +105,39 @@ def train(model: nn.Module, train_data: torch.tensor, val_data: torch.tensor, co
 
 
 if __name__ == "__main__":
-    config = {"embed_dim": 256,
-              "num_head": 8,
-              "hidden_dim": 256,
-              "dropout": 0.0,
-              "num_layer": 8,
-              "output_hidden_dim": 256,
-              "neighbor_dist": 50,
-              "use_rope": True,
+    # config = {"embed_dim": 256,
+    #           "num_head": 8,
+    #           "hidden_dim": 256,
+    #           "dropout": 0.0,
+    #           "num_layer": 8,
+    #           "output_hidden_dim": 256,
+    #           "neighbor_dist": 50,
+    #           "use_rope": True,
+    #           "dataset_path": "dataset",
+    #
+    #           "batch_size": 8,
+    #           "lr": 1e-4,
+    #           "eta_min": 1e-7,
+    #           "epoch": 200
+    #           }
 
-              "batch_size": 8,
-              "lr": 1e-4,
-              "eta_min": 1e-7,
-              "epoch": 200
-              }
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--embed_dim", default=256)
+    parser.add_argument("--num_head", default=8)
+    parser.add_argument("--hidden_dim", default=256)
+    parser.add_argument("--dropout", default=0.0)
+    parser.add_argument("--num_layer", default=8)
+    parser.add_argument("--output_hidden_dim", default=256)
+    parser.add_argument("--neighbor_dist", default=50)
+    parser.add_argument("--use_rope", action="store_true")
+    parser.add_argument("--dataset_path", default="dataset")
+    parser.add_argument("--batch_size", default=8)
+    parser.add_argument("--lr", default=1e-4)
+    parser.add_argument("--eta_min", default=1e-7)
+    parser.add_argument("--epoch", default=200)
+    config = parser.parse_args()
+
+
     timestamp = datetime.now().strftime("%Y%m%d_%H%M")
     wandb.login(key="8b3e0d688aad58e8826aa06cbd342439d583cdc0")
     run = wandb.init(
@@ -129,7 +149,7 @@ if __name__ == "__main__":
 
     model = EncoderOnly(config)
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    train_data = Argoverse('train', False)
-    val_data = Argoverse('val', False)
+    train_data = Argoverse('train', False, config.dataset_path)
+    val_data = Argoverse('val', False, config.dataset_path)
     train(model, train_data, val_data, config, device, run, True)
     run.finish()

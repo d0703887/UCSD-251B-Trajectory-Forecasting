@@ -14,9 +14,9 @@ from torch.nn.functional import linear
 class SwiGLU(nn.Module):
     def __init__(self, config):
         super().__init__()
-        hidden_dim = config['hidden_dim']
-        self.linear1 = nn.Linear(config["embed_dim"], hidden_dim * 2)
-        self.linear2 = nn.Linear(hidden_dim, config['embed_dim'])
+        hidden_dim = config.hidden_dim
+        self.linear1 = nn.Linear(config.embed_dim, hidden_dim * 2)
+        self.linear2 = nn.Linear(hidden_dim, config.embed_dim)
         self.act = nn.SiLU()
 
     def forward(self, x):
@@ -169,12 +169,12 @@ class MultiheadAttentionWithRoPE(nn.Module):
 class EncoderLayer(nn.Module):
     def __init__(self, config):
         super().__init__()
-        self.embed_dim = config['embed_dim']
-        self.num_head = config['num_head']
-        self.hidden_dim = config['hidden_dim']
-        self.dropout = config['dropout']
+        self.embed_dim = config.embed_dim
+        self.num_head = config.num_head
+        self.hidden_dim = config.hidden_dim
+        self.dropout = config.dropout
 
-        if config['use_rope']:
+        if config.use_rope:
             self.temporal_attention = MultiheadAttentionWithRoPE(self.embed_dim, self.num_head, self.dropout)
         else:
             self.temporal_attention = nn.MultiheadAttention(self.embed_dim, self.num_head, dropout=self.dropout, batch_first=True)
