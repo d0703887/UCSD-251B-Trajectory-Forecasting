@@ -8,6 +8,8 @@ import numpy as np
 import wandb
 from datetime import datetime
 import argparse
+import os
+from huggingface_hub import HfApi
 
 
 class Argoverse(Dataset):
@@ -49,11 +51,17 @@ class Argoverse(Dataset):
 
 
 def train(model: nn.Module, train_data: torch.tensor, val_data: torch.tensor, config: argparse.Namespace, device: str, run: wandb.sdk.wandb_run.Run, store_each_epoch: bool = False):
+    api = HfApi()
     model.to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=config.lr)
     loss_fn = nn.MSELoss()
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=70, eta_min=config.eta_min)
     best_loss = float("inf")
+
+    # create checkpoint path
+    checkpoint_path = os.path.join(config.huggingface_repo, run.name)
+    if not os.path.exists(checkpoint_path):
+        os.mkdir(checkpoint_path)
 
     for epoch in range(config.epoch):
         train_pbar = tqdm(DataLoader(train_data, batch_size=config.batch_size, shuffle=True), position=0)
@@ -94,11 +102,19 @@ def train(model: nn.Module, train_data: torch.tensor, val_data: torch.tensor, co
         mean_train_loss = np.mean(train_loss)
         if mean_val_loss < best_loss:
             best_loss = mean_val_loss
-            torch.save(model.state_dict(), f"checkpoints/{run.name}")
+            torch.save(model.state_dict(), os.path.join(checkpoint_path, f"{run.name}_best.pt"))
 
         if store_each_epoch:
-            if epoch // 2 == 0:
-                torch.save(model.state_dict(), f"checkpoints/{run.name}_{epoch}_{mean_val_loss}")
+            if epoch % 2 == 0:
+                torch.save(model.state_dict(), os.path.join(checkpoint_path, f"{run.name}_{epoch}_{mean_val_loss:.2f}.pt"))
+
+        if epoch % 2 == 0:
+            api.upload_folder(
+                folder_path=checkpoint_path,
+                repo_id=f"d0703887/{config.huggingface_repo.split('/')[-1]}",
+                path_in_repo=f"{run.name}",
+                token="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"
+            )
 
         run.log({"Train Loss": mean_train_loss, "Val Loss": mean_val_loss, "Learning Rate": scheduler.get_last_lr()[0]})
         print(f"Epoch {epoch}: Train Loss = {mean_train_loss:.4f}, Val Loss = {np.mean(val_loss):.4f}\n")
@@ -122,19 +138,20 @@ if __name__ == "__main__":
     #           }
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--embed_dim", default=256)
-    parser.add_argument("--num_head", default=8)
-    parser.add_argument("--hidden_dim", default=256)
-    parser.add_argument("--dropout", default=0.0)
-    parser.add_argument("--num_layer", default=8)
-    parser.add_argument("--output_hidden_dim", default=256)
-    parser.add_argument("--neighbor_dist", default=50)
+    parser.add_argument("--embed_dim", default=256, type=int)
+    parser.add_argument("--num_head", default=8, type=int)
+    parser.add_argument("--hidden_dim", default=256, type=int)
+    parser.add_argument("--dropout", default=0.0, type=float)
+    parser.add_argument("--num_layer", default=8, type=int)
+    parser.add_argument("--output_hidden_dim", default=256, type=int)
+    parser.add_argument("--neighbor_dist", default=50, type=int)
     parser.add_argument("--use_rope", action="store_true")
     parser.add_argument("--dataset_path", default="dataset")
-    parser.add_argument("--batch_size", default=8)
-    parser.add_argument("--lr", default=1e-4)
-    parser.add_argument("--eta_min", default=1e-7)
-    parser.add_argument("--epoch", default=200)
+    parser.add_argument("--huggingface_repo", default="../../CSE251B-Trajectory-Forecasting")
+    parser.add_argument("--batch_size", default=8, type=int)
+    parser.add_argument("--lr", default=1e-4, type=float)
+    parser.add_argument("--eta_min", default=1e-7, type=float)
+    parser.add_argument("--epoch", default=200, type=int)
     config = parser.parse_args()
 
 
@@ -153,6 +170,7 @@ if __name__ == "__main__":
                 "neighbor_dist": config.neighbor_dist,
                 "use_rope": config.use_rope,
                 "dataset_path": config.dataset_path,
+                "huggingface_repo": config.huggingface_repo,
 
                 "batch_size": config.batch_size,
                 "lr": config.lr,
