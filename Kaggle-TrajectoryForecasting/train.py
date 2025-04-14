@@ -59,9 +59,7 @@ def train(model: nn.Module, train_data: torch.tensor, val_data: torch.tensor, co
     best_loss = float("inf")
 
     # create checkpoint path
-    checkpoint_path = os.path.join(config.huggingface_repo, run.name)
-    if not os.path.exists(checkpoint_path):
-        os.mkdir(checkpoint_path)
+    os.mkdir(run.name)
 
     for epoch in range(config.epoch):
         train_pbar = tqdm(DataLoader(train_data, batch_size=config.batch_size, shuffle=True), position=0)
@@ -102,16 +100,16 @@ def train(model: nn.Module, train_data: torch.tensor, val_data: torch.tensor, co
         mean_train_loss = np.mean(train_loss)
         if mean_val_loss < best_loss:
             best_loss = mean_val_loss
-            torch.save(model.state_dict(), os.path.join(checkpoint_path, f"{run.name}_best.pt"))
+            torch.save(model.state_dict(), os.path.join(run.name, f"{run.name}_best.pt"))
 
         if store_each_epoch:
             if epoch % 2 == 0:
-                torch.save(model.state_dict(), os.path.join(checkpoint_path, f"{run.name}_{epoch}_{mean_val_loss:.2f}.pt"))
+                torch.save(model.state_dict(), os.path.join(run.name, f"{run.name}_{epoch}_{mean_val_loss:.2f}.pt"))
 
-        if epoch % 2 == 0:
+        if epoch % 10 == 0:
             api.upload_folder(
-                folder_path=checkpoint_path,
-                repo_id=f"d0703887/{config.huggingface_repo.split('/')[-1]}",
+                folder_path=run.name,
+                repo_id=config.huggingface_repo,
                 path_in_repo=f"{run.name}",
                 token="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"
             )
@@ -147,7 +145,7 @@ if __name__ == "__main__":
     parser.add_argument("--neighbor_dist", default=50, type=int)
     parser.add_argument("--use_rope", action="store_true")
     parser.add_argument("--dataset_path", default="dataset")
-    parser.add_argument("--huggingface_repo", default="../../CSE251B-Trajectory-Forecasting")
+    parser.add_argument("--huggingface_repo", default="d0703887/CSE251B-Trajectory-Forecasting")
     parser.add_argument("--batch_size", default=8, type=int)
     parser.add_argument("--lr", default=1e-4, type=float)
     parser.add_argument("--eta_min", default=1e-7, type=float)
