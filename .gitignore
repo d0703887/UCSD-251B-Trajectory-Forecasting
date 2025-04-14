@@ -1,0 +1,9 @@
+Kaggle-TrajectoryForecasting/checkpoints/
+Kaggle-TrajectoryForecasting/dataset/
+Kaggle-TrajectoryForecasting/papers/
+Kaggle-TrajectoryForecasting/wandb/
+Kaggle-TrajectoryForecasting/checkpoints/
+Kaggle-TrajectoryForecasting/job-template.yaml
+Kaggle-TrajectoryForecasting/Persistent-Volume-Claim.yaml
+Kaggle-TrajectoryForecasting/pod-template.yaml
+Kaggle-TrajectoryForecasting/utils/__pycache__/
