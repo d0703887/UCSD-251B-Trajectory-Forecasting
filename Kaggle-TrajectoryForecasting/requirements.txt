@@ -1,0 +1,6 @@
+matplotlib==3.9.4
+torch==2.6.0+cu124
+torchao==0.10.0
+torchtune==0.6.1
+tqdm==4.67.1
+wandb==0.19.9

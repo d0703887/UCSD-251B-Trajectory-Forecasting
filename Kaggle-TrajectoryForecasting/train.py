@@ -144,7 +144,21 @@ if __name__ == "__main__":
         entity="d0703887",
         project="CSE251b-Trajectory Forecasting",
         name=f"{timestamp}_EncoderOnly",
-        config=config,
+        config={"embed_dim": config.embed_dim,
+                "num_head": config.num_head,
+                "hidden_dim": config.hidden_dim,
+                "dropout": config.dropout,
+                "num_layer": config.num_layer,
+                "output_hidden_dim": config.output_hidden_dim,
+                "neighbor_dist": config.neighbor_dist,
+                "use_rope": config.use_rope,
+                "dataset_path": config.dataset_path,
+
+                "batch_size": config.batch_size,
+                "lr": config.lr,
+                "eta_min": config.eta_min,
+                "epoch": config.epoch
+                },
     )
 
     model = EncoderOnly(config)
