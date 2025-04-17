@@ -103,18 +103,19 @@ def train(model: nn.Module, train_data: torch.tensor, val_data: torch.tensor, co
             torch.save(model.state_dict(), os.path.join(run.name, f"{run.name}_best.pt"))
 
         if store_each_epoch:
-            if epoch % 2 == 0:
+            if epoch % 4 == 0:
                 torch.save(model.state_dict(), os.path.join(run.name, f"{run.name}_{epoch}_{mean_val_loss:.2f}.pt"))
+
+        if epoch % 10 == 0:
+            api.upload_folder(
+                folder_path=run.name,
+                repo_id=config.huggingface_repo,
+                path_in_repo=f"{run.name}",
+                token="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"
+            )
 
         run.log({"Train Loss": mean_train_loss, "Val Loss": mean_val_loss, "Learning Rate": scheduler.get_last_lr()[0]})
         print(f"Epoch {epoch}: Train Loss = {mean_train_loss:.4f}, Val Loss = {np.mean(val_loss):.4f}\n")
-
-    api.upload_folder(
-        folder_path=run.name,
-        repo_id=config.huggingface_repo,
-        path_in_repo=f"{run.name}",
-        token="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"
-    )
 
 
 if __name__ == "__main__":
