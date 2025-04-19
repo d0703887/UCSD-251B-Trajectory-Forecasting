@@ -44,7 +44,7 @@ def get_social_mask(x: torch.tensor, config):
     return social_mask.repeat(config.num_head, 1, 1)
 
 
-class Encoder(nn.Module):
+class Transformer(nn.Module):
     def __init__(self, config):
         super().__init__()
         self.num_layer = config.num_layer
@@ -71,22 +71,61 @@ class EncoderOnly(nn.Module):
     def __init__(self, config):
         super().__init__()
         self.config = config
-        self.encoder = Encoder(config)
+        self.encoder = Transformer(config)
         self.mlp = nn.ModuleList([
             nn.Linear(config.embed_dim, config.output_hidden_dim),
             nn.LeakyReLU(),
             nn.Linear(config.output_hidden_dim, 120)
         ])
+        self.use_social_attn = config.use_social_attn
 
     def forward(self, x, trainable_mask):
         temporal_mask = get_temporal_mask(x, self.config)
-        social_mask = get_social_mask(x, self.config)
+        if self.use_social_attn:
+            social_mask = get_social_mask(x, self.config)
+        else:
+            social_mask = None
+
         x = self.encoder(x, temporal_mask, social_mask)  # (N, A, T, D)
         x = x[trainable_mask]  # (#trainable samples, T, D)
         x = x[:, -1]
         for layer in self.mlp:
             x = layer(x)
         return x.reshape(x.shape[0], 60, 2)
+
+
+class DecoderOnly(nn.Module):
+    def __init__(self, config):
+        super().__init__()
+        self.config = config
+        self.decoder = Transformer(config)
+        self.use_social_attn = config.use_social_attn
+        self.mlp = nn.ModuleList([
+            nn.Linear(config.embed_dim, config.output_hidden_dim),
+            nn.LeakyReLU(),
+            nn.Linear(config.output_hidden_dim, 5)
+        ])
+
+    def forward(self, x):
+        """
+        x: (N*A, T, D)
+        """
+        x = x.unsqueeze(1)
+        temporal_mask = get_temporal_mask(x, self.config)
+        if self.use_social_attn:
+            social_mask = get_social_mask(x, self.config)
+        else:
+            social_mask = None
+
+        x = self.decoder(x, temporal_mask, social_mask)  # (N*A, 1, T, D)
+        x = x.squeeze()
+        for layer in self.mlp:
+            x = layer(x)
+        return x
+
+
+
+
 
 
 

@@ -173,23 +173,24 @@ class EncoderLayer(nn.Module):
         self.num_head = config.num_head
         self.hidden_dim = config.hidden_dim
         self.dropout = config.dropout
+        self.use_social_attn = config.use_social_attn
 
         if config.use_rope:
             self.temporal_attention = MultiheadAttentionWithRoPE(self.embed_dim, self.num_head, self.dropout)
         else:
             self.temporal_attention = nn.MultiheadAttention(self.embed_dim, self.num_head, dropout=self.dropout, batch_first=True)
 
-        # self.social_attention = nn.MultiheadAttention(self.embed_dim, self.num_head, dropout=self.dropout, batch_first=True)
+        self.social_attention = nn.MultiheadAttention(self.embed_dim, self.num_head, dropout=self.dropout, batch_first=True)
 
         self.norm1 = nn.RMSNorm(normalized_shape=self.embed_dim)
         self.norm2 = nn.RMSNorm(normalized_shape=self.embed_dim)
-        # self.norm3 = nn.RMSNorm(normalized_shape=self.embed_dim)
+        self.norm3 = nn.RMSNorm(normalized_shape=self.embed_dim)
 
         self.mlp = SwiGLU(config)
 
         self.dropout1 = nn.Dropout(self.dropout)
         self.dropout2 = nn.Dropout(self.dropout)
-        # self.dropout3 = nn.Dropout(self.dropout)
+        self.dropout3 = nn.Dropout(self.dropout)
 
     def forward(self, x, temporal_mask=None, social_mask=None):
         """
@@ -205,15 +206,16 @@ class EncoderLayer(nn.Module):
         norm_x = self.norm1(x)
         x = x + self.dropout1(self.temporal_attention(norm_x, norm_x, norm_x, attn_mask=temporal_mask)[0])
 
-        x = x.reshape(N, A, T, D)
-        x = x + self.dropout2(self.mlp(self.norm2(x)))
+        if self.use_social_attn:
+            # attend on space
+            x = x.reshape(N, A, T, D).transpose(1, 2).reshape(N * T, A, D)
+            norm_x = self.norm2(x)
+            x = x + self.dropout2(self.social_attention(norm_x, norm_x, norm_x, attn_mask=social_mask)[0])
 
-        # # attend on space
-        # x = x.reshape(N, A, T, D).transpose(1, 2).reshape(N * T, A, D)
-        # norm_x = self.norm2(x)
-        # x = x + self.dropout2(self.social_attention(norm_x, norm_x, norm_x, attn_mask=social_mask)[0])
-
-        # x = x.reshape(N, T, A, D).transpose(1, 2)
-        # x = x + self.dropout3(self.mlp(self.norm3(x)))
+            x = x.reshape(N, T, A, D).transpose(1, 2)
+            x = x + self.dropout3(self.mlp(self.norm3(x)))
+        else:
+            x = x.reshape(N, A, T, D)
+            x = x + self.dropout2(self.mlp(self.norm2(x)))
 
         return x

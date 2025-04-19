@@ -59,7 +59,7 @@ def make_gif(data_matrix, name='example'):
     anim = animation.FuncAnimation(fig, update, frames=list(range(0, data_matrix.shape[1], 3)),
                                    interval=100, blit=True)
     #plt.show()
-    anim.save(f'trajectory_visualization_{name}.gif', writer='pillow')
+    anim.save(f'../visualized_data/trajectory_visualization_{name}.gif', writer='pillow')
 
 
 def load_dataset(path: str):
@@ -81,13 +81,18 @@ if __name__ == "__main__":
 
     for i in range(train_data.shape[0]):
         data_matrix = train_data[i]
-        make_gif(data_matrix, f"index{i}")
-        # print(train_data[:, 0])
+        #make_gif(data_matrix, f"index{i}")
+
         # for j in range(data_matrix.shape[0]):
         #     for frame in range(data_matrix.shape[1]):
         #         if data_matrix[j, frame, 0] != 0 and data_matrix[j, frame, 1] != 0:
         #             cls_frame[data_matrix[j, 0, 5]] += 1
         #             total_frames += 1
+
+        for j in range(data_matrix.shape[0]):
+            for frame in range(data_matrix.shape[1]):
+                if not abs(np.arctan2(data_matrix[j, frame, 3], data_matrix[j, frame, 2]) - data_matrix[j, frame, 4]) < 0.1:
+                    print(np.arctan2(data_matrix[j, frame, 3], data_matrix[j, frame, 2]), data_matrix[j, frame, 4])
 
     for cls, frame in cls_frame.items():
         print(f"{classes[cls]}: {frame} ({frame / total_frames})")

@@ -1,53 +1,94 @@
-from models.model import EncoderOnly
-from utils.dataset_visualization import load_dataset
+from models.model import *
 import torch
 import torch.nn as nn
 from tqdm import tqdm
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import DataLoader
 import numpy as np
 import wandb
 from datetime import datetime
 import argparse
 import os
 from huggingface_hub import HfApi
+from utils.preprocess_data import *
 
 
-class Argoverse(Dataset):
-    def __init__(self, mode: str = 'train', split_val: bool = True, dataset_path: str = "dataset"):
-        if mode == 'train':
-            self.data = torch.tensor(load_dataset(dataset_path)[0], dtype=torch.float32)
-            if split_val:
-                self.data = self.data[:int(len(self.data) * 0.7)]
-        elif mode == 'val':
-            self.data = torch.tensor(load_dataset(dataset_path)[0], dtype=torch.float32)
-            if split_val:
-                self.data = self.data[int(len(self.data) * 0.7):]
-        elif mode == 'test':
-            self.data = torch.tensor(load_dataset(dataset_path)[1], dtype=torch.float32)
+def decoder_training(model: nn.Module, train_data: torch.tensor, val_data: torch.tensor, config: argparse.Namespace, device: str, run: wandb.sdk.wandb_run.Run, store_each_epoch: bool = False):
+    api = HfApi()
+    model.to(device)
+    optimizer = torch.optim.Adam(model.parameters(), lr=config.lr)
+    loss_fn = nn.MSELoss()
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=70, eta_min=config.eta_min)
+    best_loss = float("inf")
 
-        self.len = len(self.data)
-        total_N, A, T, _ = self.data.shape
-        self.input_traj = self.data[:, :, :50, :]
-        if mode == 'train':
-            self.gt_pos = self.data[:, :, 50:, :2]
-            self.trainable_mask = self.data[:, :, 0, 5] == 0  # True -> can be used a training sample
-            self.y_mask = ~((self.data[:, :, 50:, 0] == 0) & (self.data[:, :, 50:, 1] == 0))  # True -> can be used in loss function
-        elif mode == 'val':
-            self.gt_pos = self.data[:, :, 50:, :2]
-            self.trainable_mask = torch.zeros(self.len, 50, dtype=torch.bool)
-            self.trainable_mask[:, 0] = True  # predict only first agent in each scene
-            self.y_mask = ~((self.data[:, :, 50:, 0] == 0) & (self.data[:, :, 50:, 1] == 0))
-        else:
-            self.gt_pos = torch.ones(self.len)
-            self.trainable_mask = torch.zeros(self.len, 50, dtype=torch.bool)
-            self.trainable_mask[:, 0] = True  # predict only first agent in each scene
-            self.y_mask = torch.ones(self.len)
+    # create checkpoint path
+    os.mkdir(run.name)
 
-    def __len__(self):
-        return self.len
+    for epoch in range(config.epoch):
+        train_pbar = tqdm(DataLoader(train_data, batch_size=config.batch_size, shuffle=True), position=0)
+        val_dataloader = DataLoader(val_data, batch_size=config.batch_size)
+        train_loss = []
+        val_loss = []
 
-    def __getitem__(self, idx):
-        return self.input_traj[idx], self.gt_pos[idx], self.trainable_mask[idx], self.y_mask[idx]
+        # training
+        model.train()
+        for traj, trainable_mask, y_mask in train_pbar:
+            traj, trainable_mask, y_mask = traj.to(device), trainable_mask.to(device), y_mask.to(device)
+            traj, y_mask = traj[trainable_mask], y_mask[trainable_mask]
+            input_traj = traj[:, :-1]
+            gt_traj = traj[:, 1:, :5]
+            optimizer.zero_grad()
+
+            pred = model(input_traj)  # (N*A, T, 5)
+            loss = loss_fn(pred[y_mask[:, 1:]], gt_traj[y_mask[:, 1:]])
+
+            loss.backward()
+            optimizer.step()
+
+            train_loss.append(loss.item())
+            train_pbar.set_description(f"Epoch {epoch}")
+            train_pbar.set_postfix({"train loss": loss.item()})
+
+        # validation
+        model.eval()
+        with torch.no_grad():
+            for traj, trainable_mask, y_mask in tqdm(val_dataloader):
+                traj, trainable_mask, y_mask = traj.to(device), trainable_mask.to(device), y_mask.to(device)
+                traj, y_mask = traj[trainable_mask], y_mask[trainable_mask]
+                input_traj = traj[:, :50]  # (N, T, 6)
+                gt_traj = traj[:, 50:, :2]
+
+                for i in range(60):
+                    pred = model(input_traj)[:, -1]  # (N, 5)
+                    pred = torch.cat([pred, torch.zeros(pred.shape[0], 1, device=traj.device)], dim=-1)  # (N, 6)
+                    input_traj = torch.cat([input_traj, pred[:,  None, :]], dim=1)
+
+                pred_traj = input_traj[:, 50:, :2]
+                loss = loss_fn(pred_traj[y_mask[:, 50:]], gt_traj[y_mask[:, 50:]])
+                val_loss.append(loss.item())
+
+        scheduler.step()
+        mean_val_loss = np.mean(val_loss)
+        mean_train_loss = np.mean(train_loss)
+        if mean_val_loss < best_loss:
+            best_loss = mean_val_loss
+            torch.save(model.state_dict(), os.path.join(run.name, f"{run.name}_best.pt"))
+
+        if store_each_epoch:
+            if epoch % 4 == 0:
+                torch.save(model.state_dict(), os.path.join(run.name, f"{run.name}_{epoch}_{mean_val_loss:.2f}.pt"))
+
+        if epoch % 10 == 0:
+            api.upload_folder(
+                folder_path=run.name,
+                repo_id=config.huggingface_repo,
+                path_in_repo=f"{run.name}",
+                token="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"
+            )
+
+        run.log({"Train Loss": mean_train_loss, "Val Loss": mean_val_loss, "Learning Rate": scheduler.get_last_lr()[0]})
+        print(f"Epoch {epoch}: Train Loss = {mean_train_loss:.4f}, Val Loss = {np.mean(val_loss):.4f}\n")
+
+
 
 
 def train(model: nn.Module, train_data: torch.tensor, val_data: torch.tensor, config: argparse.Namespace, device: str, run: wandb.sdk.wandb_run.Run, store_each_epoch: bool = False):
@@ -150,6 +191,7 @@ if __name__ == "__main__":
     parser.add_argument("--lr", default=1e-4, type=float)
     parser.add_argument("--eta_min", default=1e-7, type=float)
     parser.add_argument("--epoch", default=200, type=int)
+    parser.add_argument("--use_social_attn", default=False, type=bool)
     config = parser.parse_args()
 
 
@@ -158,7 +200,7 @@ if __name__ == "__main__":
     run = wandb.init(
         entity="d0703887",
         project="CSE251b-Trajectory Forecasting",
-        name=f"{timestamp}_EncoderOnly",
+        name=f"{timestamp}_DecoderOnly",
         config={"embed_dim": config.embed_dim,
                 "num_head": config.num_head,
                 "hidden_dim": config.hidden_dim,
@@ -173,13 +215,21 @@ if __name__ == "__main__":
                 "batch_size": config.batch_size,
                 "lr": config.lr,
                 "eta_min": config.eta_min,
-                "epoch": config.epoch
+                "epoch": config.epoch,
+                "use_social_attn": config.use_social_attn
                 },
     )
 
-    model = EncoderOnly(config)
+    model = DecoderOnly(config)
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    train_data = Argoverse('train', False, config.dataset_path)
-    val_data = Argoverse('val', False, config.dataset_path)
-    train(model, train_data, val_data, config, device, run, True)
+    train_data = Argoverse('train', True, config.dataset_path)
+    val_data = Argoverse('val', True, config.dataset_path)
+    decoder_training(model, train_data, val_data, config, device, run, True)
     run.finish()
+
+    # model = EncoderOnly(config)
+    # device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    # train_data = Argoverse('train', False, config.dataset_path)
+    # val_data = Argoverse('val', False, config.dataset_path)
+    # train(model, train_data, val_data, config, device, run, True)
+    # run.finish()
