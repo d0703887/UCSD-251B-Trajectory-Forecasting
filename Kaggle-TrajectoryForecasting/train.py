@@ -65,8 +65,9 @@ def decoder_training(model: nn.Module, train_data: torch.tensor, val_data: torch
                 pred_traj = input_traj[:, 50:, :2]
                 loss = loss_fn(pred_traj[y_mask[:, 50:]], gt_traj[y_mask[:, 50:]])
                 val_loss.append(loss.item())
-
-        scheduler.step()
+                
+        if epoch < 70:
+            scheduler.step()
         mean_val_loss = np.mean(val_loss)
         mean_train_loss = np.mean(train_loss)
         if mean_val_loss < best_loss:
