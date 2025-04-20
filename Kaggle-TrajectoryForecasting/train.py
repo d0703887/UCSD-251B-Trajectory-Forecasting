@@ -89,6 +89,29 @@ def decoder_training(model: nn.Module, train_data: torch.tensor, val_data: torch
         print(f"Epoch {epoch}: Train Loss = {mean_train_loss:.4f}, Val Loss = {np.mean(val_loss):.4f}\n")
 
 
+def inference(model: nn.Module, test_data: torch.tensor, config: argparse.Namespace, device):
+    model.to(device)
+    loss_fn = nn.MSELoss()
+    test_pbar = tqdm(DataLoader(test_data, batch_size=config.batch_size), position=0)
+    model.eval()
+    losses = []
+    with torch.no_grad():
+        for traj, trainable_mask, y_mask in tqdm(test_pbar):
+            traj, trainable_mask, y_mask = traj.to(device), trainable_mask.to(device), y_mask.to(device)
+            traj, y_mask = traj[trainable_mask], y_mask[trainable_mask]
+            input_traj = traj[:, :50]  # (N, T, 6)
+            gt_traj = traj[:, 50:, :2]
+
+            for i in range(60):
+                pred = model(input_traj)[:, -1]  # (N, 5)
+                pred = torch.cat([pred, torch.zeros(pred.shape[0], 1, device=traj.device)], dim=-1)  # (N, 6)
+                input_traj = torch.cat([input_traj, pred[:, None, :]], dim=1)
+
+            pred_traj = input_traj[:, 50:, :2]
+            loss = loss_fn(pred_traj[y_mask[:, 50:]], gt_traj[y_mask[:, 50:]])
+            losses.append(loss)
+
+    print(f"Testing Loss: {np.mean(losses)}")
 
 
 def train(model: nn.Module, train_data: torch.tensor, val_data: torch.tensor, config: argparse.Namespace, device: str, run: wandb.sdk.wandb_run.Run, store_each_epoch: bool = False):
@@ -158,7 +181,6 @@ def train(model: nn.Module, train_data: torch.tensor, val_data: torch.tensor, co
         run.log({"Train Loss": mean_train_loss, "Val Loss": mean_val_loss, "Learning Rate": scheduler.get_last_lr()[0]})
         print(f"Epoch {epoch}: Train Loss = {mean_train_loss:.4f}, Val Loss = {np.mean(val_loss):.4f}\n")
 
-
 if __name__ == "__main__":
     # config = {"embed_dim": 256,
     #           "num_head": 8,
@@ -195,37 +217,40 @@ if __name__ == "__main__":
     config = parser.parse_args()
 
 
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M")
-    wandb.login(key="8b3e0d688aad58e8826aa06cbd342439d583cdc0")
-    run = wandb.init(
-        entity="d0703887",
-        project="CSE251b-Trajectory Forecasting",
-        name=f"{timestamp}_DecoderOnly",
-        config={"embed_dim": config.embed_dim,
-                "num_head": config.num_head,
-                "hidden_dim": config.hidden_dim,
-                "dropout": config.dropout,
-                "num_layer": config.num_layer,
-                "output_hidden_dim": config.output_hidden_dim,
-                "neighbor_dist": config.neighbor_dist,
-                "use_rope": config.use_rope,
-                "dataset_path": config.dataset_path,
-                "huggingface_repo": config.huggingface_repo,
-
-                "batch_size": config.batch_size,
-                "lr": config.lr,
-                "eta_min": config.eta_min,
-                "epoch": config.epoch,
-                "use_social_attn": config.use_social_attn
-                },
-    )
+    # timestamp = datetime.now().strftime("%Y%m%d_%H%M")
+    # wandb.login(key="8b3e0d688aad58e8826aa06cbd342439d583cdc0")
+    # run = wandb.init(
+    #     entity="d0703887",
+    #     project="CSE251b-Trajectory Forecasting",
+    #     name=f"{timestamp}_DecoderOnly",
+    #     config={"embed_dim": config.embed_dim,
+    #             "num_head": config.num_head,
+    #             "hidden_dim": config.hidden_dim,
+    #             "dropout": config.dropout,
+    #             "num_layer": config.num_layer,
+    #             "output_hidden_dim": config.output_hidden_dim,
+    #             "neighbor_dist": config.neighbor_dist,
+    #             "use_rope": config.use_rope,
+    #             "dataset_path": config.dataset_path,
+    #             "huggingface_repo": config.huggingface_repo,
+    #
+    #             "batch_size": config.batch_size,
+    #             "lr": config.lr,
+    #             "eta_min": config.eta_min,
+    #             "epoch": config.epoch,
+    #             "use_social_attn": config.use_social_attn
+    #             },
+    # )
 
     model = DecoderOnly(config)
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     train_data = Argoverse('train', True, config.dataset_path)
-    val_data = Argoverse('val', True, config.dataset_path)
-    decoder_training(model, train_data, val_data, config, device, run, True)
-    run.finish()
+
+    model.load_state_dict(torch.load("20250420_0011_DecoderOnly_best.pt"))
+    inference(model, train_data, config, device)
+    # val_data = Argoverse('val', True, config.dataset_path)
+    # decoder_training(model, train_data, val_data, config, device, run, True)
+    # run.finish()
 
     # model = EncoderOnly(config)
     # device = 'cuda' if torch.cuda.is_available() else 'cpu'
