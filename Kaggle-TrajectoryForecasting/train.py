@@ -41,11 +41,17 @@ def decoder_training(model: nn.Module, train_data: torch.tensor, val_data: torch
             loss = loss_fn(pred[y_mask[:, 1:]], gt_traj[y_mask[:, 1:]])
 
             loss.backward()
+            torch.nn.utils.clip_grad_value_(model.parameters(), clip_value=1.0)
             optimizer.step()
 
             train_loss.append(loss.item())
             train_pbar.set_description(f"Epoch {epoch}")
             train_pbar.set_postfix({"train loss": loss.item()})
+
+        # check gradient
+        for name, param in model.named_parameters():
+            if param.grad is not None:
+                print(f"{name}: grad mean {param.grad.mean():.5f}, std {param.grad.std():.5f}")
 
         # validation
         model.eval()
@@ -210,7 +216,7 @@ if __name__ == "__main__":
     parser.add_argument("--use_social_attn", default=False, type=bool)
     config = parser.parse_args()
 
-
+    #os.environ['WANDB_MODE'] = 'offline'
     timestamp = datetime.now().strftime("%Y%m%d_%H%M")
     wandb.login(key="8b3e0d688aad58e8826aa06cbd342439d583cdc0")
     run = wandb.init(
@@ -245,9 +251,9 @@ if __name__ == "__main__":
     decoder_training(model, train_data, val_data, config, device, run, True)
     run.finish()
 
-    model = EncoderOnly(config)
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    train_data = Argoverse('train', False, config.dataset_path)
-    val_data = Argoverse('val', False, config.dataset_path)
-    train(model, train_data, val_data, config, device, run, True)
-    run.finish()
+    # model = EncoderOnly(config)
+    # device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    # train_data = Argoverse('train', False, config.dataset_path)
+    # val_data = Argoverse('val', False, config.dataset_path)
+    # train(model, train_data, val_data, config, device, run, True)
+    # run.finish()
