@@ -53,7 +53,7 @@ class MultiheadAttentionWithRoPE(nn.Module):
             self.register_parameter("in_proj_bias", None)
 
         # https://arxiv.org/abs/2104.09864
-        self.rotary_pos_enc = RotaryPositionalEmbeddings(self.head_dim, max_seq_len=50)
+        self.rotary_pos_enc = RotaryPositionalEmbeddings(self.head_dim, max_seq_len=110)
 
         self.out_proj = nn.Linear(embed_dim, embed_dim, bias=bias)
 

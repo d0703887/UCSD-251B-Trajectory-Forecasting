@@ -31,9 +31,8 @@ def decoder_training(model: nn.Module, train_data: torch.tensor, val_data: torch
 
         # training
         model.train()
-        for traj, trainable_mask, y_mask in train_pbar:
-            traj, trainable_mask, y_mask = traj.to(device), trainable_mask.to(device), y_mask.to(device)
-            traj, y_mask = traj[trainable_mask], y_mask[trainable_mask]
+        for traj, y_mask in train_pbar:
+            traj, y_mask = traj.to(device), y_mask.to(device)
             input_traj = traj[:, :-1]
             gt_traj = traj[:, 1:, :5]
             optimizer.zero_grad()
@@ -51,9 +50,8 @@ def decoder_training(model: nn.Module, train_data: torch.tensor, val_data: torch
         # validation
         model.eval()
         with torch.no_grad():
-            for traj, trainable_mask, y_mask in tqdm(val_dataloader):
-                traj, trainable_mask, y_mask = traj.to(device), trainable_mask.to(device), y_mask.to(device)
-                traj, y_mask = traj[trainable_mask], y_mask[trainable_mask]
+            for traj, y_mask in tqdm(val_dataloader):
+                traj, y_mask = traj.to(device), y_mask.to(device)
                 input_traj = traj[:, :50]  # (N, T, 6)
                 gt_traj = traj[:, 50:, :2]
 
@@ -65,7 +63,7 @@ def decoder_training(model: nn.Module, train_data: torch.tensor, val_data: torch
                 pred_traj = input_traj[:, 50:, :2]
                 loss = loss_fn(pred_traj[y_mask[:, 50:]], gt_traj[y_mask[:, 50:]])
                 val_loss.append(loss.item())
-                
+
         if epoch < 70:
             scheduler.step()
         mean_val_loss = np.mean(val_loss)
@@ -100,17 +98,12 @@ def inference(model: nn.Module, test_data: torch.tensor, config: argparse.Namesp
         for traj, trainable_mask, y_mask in tqdm(test_pbar):
             traj, trainable_mask, y_mask = traj.to(device), trainable_mask.to(device), y_mask.to(device)
             traj, y_mask = traj[trainable_mask], y_mask[trainable_mask]
-            input_traj = traj[:, :50]  # (N, T, 6)
-            gt_traj = traj[:, 50:, :2]
+            input_traj = traj[:, :-1]
+            gt_traj = traj[:, 1:, :5]
 
-            for i in range(60):
-                pred = model(input_traj)[:, -1]  # (N, 5)
-                pred = torch.cat([pred, torch.zeros(pred.shape[0], 1, device=traj.device)], dim=-1)  # (N, 6)
-                input_traj = torch.cat([input_traj, pred[:, None, :]], dim=1)
-
-            pred_traj = input_traj[:, 50:, :2]
-            loss = loss_fn(pred_traj[y_mask[:, 50:]], gt_traj[y_mask[:, 50:]])
-            losses.append(loss)
+            pred = model(input_traj)  # (N*A, T, 5)
+            loss = loss_fn(pred[y_mask[:, 1:]], gt_traj[y_mask[:, 1:]])
+            print(pred, gt_traj)
 
     print(f"Testing Loss: {np.mean(losses)}")
 
@@ -210,7 +203,7 @@ if __name__ == "__main__":
     parser.add_argument("--use_rope", action="store_true")
     parser.add_argument("--dataset_path", default="dataset")
     parser.add_argument("--huggingface_repo", default="d0703887/CSE251B-Trajectory-Forecasting")
-    parser.add_argument("--batch_size", default=8, type=int)
+    parser.add_argument("--batch_size", default=16, type=int)
     parser.add_argument("--lr", default=1e-4, type=float)
     parser.add_argument("--eta_min", default=1e-7, type=float)
     parser.add_argument("--epoch", default=200, type=int)
@@ -218,44 +211,43 @@ if __name__ == "__main__":
     config = parser.parse_args()
 
 
-    # timestamp = datetime.now().strftime("%Y%m%d_%H%M")
-    # wandb.login(key="8b3e0d688aad58e8826aa06cbd342439d583cdc0")
-    # run = wandb.init(
-    #     entity="d0703887",
-    #     project="CSE251b-Trajectory Forecasting",
-    #     name=f"{timestamp}_DecoderOnly",
-    #     config={"embed_dim": config.embed_dim,
-    #             "num_head": config.num_head,
-    #             "hidden_dim": config.hidden_dim,
-    #             "dropout": config.dropout,
-    #             "num_layer": config.num_layer,
-    #             "output_hidden_dim": config.output_hidden_dim,
-    #             "neighbor_dist": config.neighbor_dist,
-    #             "use_rope": config.use_rope,
-    #             "dataset_path": config.dataset_path,
-    #             "huggingface_repo": config.huggingface_repo,
-    #
-    #             "batch_size": config.batch_size,
-    #             "lr": config.lr,
-    #             "eta_min": config.eta_min,
-    #             "epoch": config.epoch,
-    #             "use_social_attn": config.use_social_attn
-    #             },
-    # )
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M")
+    wandb.login(key="8b3e0d688aad58e8826aa06cbd342439d583cdc0")
+    run = wandb.init(
+        entity="d0703887",
+        project="CSE251b-Trajectory Forecasting",
+        name=f"{timestamp}_DecoderOnly",
+        config={"embed_dim": config.embed_dim,
+                "num_head": config.num_head,
+                "hidden_dim": config.hidden_dim,
+                "dropout": config.dropout,
+                "num_layer": config.num_layer,
+                "output_hidden_dim": config.output_hidden_dim,
+                "neighbor_dist": config.neighbor_dist,
+                "use_rope": config.use_rope,
+                "dataset_path": config.dataset_path,
+                "huggingface_repo": config.huggingface_repo,
+
+                "batch_size": config.batch_size,
+                "lr": config.lr,
+                "eta_min": config.eta_min,
+                "epoch": config.epoch,
+                "use_social_attn": config.use_social_attn
+                },
+    )
 
     model = DecoderOnly(config)
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    train_data = Argoverse('train', True, config.dataset_path)
+    train_data = ArgoverseDecoderOnly('train', True, config.dataset_path)
+    # model.load_state_dict(torch.load("20250420_0011_DecoderOnly_best.pt"))
+    # inference(model, train_data, config, device)
+    val_data = ArgoverseDecoderOnly('val', True, config.dataset_path)
+    decoder_training(model, train_data, val_data, config, device, run, True)
+    run.finish()
 
-    model.load_state_dict(torch.load("20250420_0011_DecoderOnly_best.pt"))
-    inference(model, train_data, config, device)
-    # val_data = Argoverse('val', True, config.dataset_path)
-    # decoder_training(model, train_data, val_data, config, device, run, True)
-    # run.finish()
-
-    # model = EncoderOnly(config)
-    # device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    # train_data = Argoverse('train', False, config.dataset_path)
-    # val_data = Argoverse('val', False, config.dataset_path)
-    # train(model, train_data, val_data, config, device, run, True)
-    # run.finish()
+    model = EncoderOnly(config)
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    train_data = Argoverse('train', False, config.dataset_path)
+    val_data = Argoverse('val', False, config.dataset_path)
+    train(model, train_data, val_data, config, device, run, True)
+    run.finish()
