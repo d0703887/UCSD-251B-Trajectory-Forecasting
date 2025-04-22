@@ -166,7 +166,7 @@ class MultiheadAttentionWithRoPE(nn.Module):
             return attn_output, None
 
 
-class EncoderLayer(nn.Module):
+class TransformerLayer(nn.Module):
     def __init__(self, config):
         super().__init__()
         self.embed_dim = config.embed_dim

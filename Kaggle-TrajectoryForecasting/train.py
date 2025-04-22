@@ -12,7 +12,7 @@ from huggingface_hub import HfApi
 from utils.preprocess_data import *
 
 
-def decoder_training(model: nn.Module, train_data: torch.tensor, val_data: torch.tensor, config: argparse.Namespace, device: str, run: wandb.sdk.wandb_run.Run, store_each_epoch: bool = False):
+def train(model: nn.Module, train_data: torch.tensor, val_data: torch.tensor, config: argparse.Namespace, device: str, run: wandb.sdk.wandb_run.Run, store_each_epoch: bool = False):
     api = HfApi()
     model.to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=config.lr)
@@ -31,14 +31,18 @@ def decoder_training(model: nn.Module, train_data: torch.tensor, val_data: torch
 
         # training
         model.train()
-        for traj, y_mask in train_pbar:
-            traj, y_mask = traj.to(device), y_mask.to(device)
-            input_traj = traj[:, :-1]
-            gt_traj = traj[:, 1:, :5]
+        for traj in train_pbar:
+            traj = traj.to(device)
+            input_traj = traj[:, :-config.pred_frame, :5]
+            N, T, D = traj.shape
+            t_idx = torch.arange(T - config.pred_frame, device=traj.device).reshape(-1, 1) + torch.arange(1, config.pred_frame + 1, device=traj.device).reshape(1, -1)
+            t_idx = t_idx[None, :, :].repeat(N, 1, 1)
+            gt_traj = torch.take_along_dim(traj[:, :, None, :5], t_idx[:, :,:, None], dim=1)
             optimizer.zero_grad()
 
-            pred = model(input_traj)  # (N*A, T, 5)
-            loss = loss_fn(pred[y_mask[:, 1:]], gt_traj[y_mask[:, 1:]])
+            pred = model(input_traj)  # (N*A, T, pred_frame, 5)
+            y_mask = ~((gt_traj[:, :, :, 0] == 0) & (gt_traj[:, :, :, 1] == 0))
+            loss = loss_fn(pred[y_mask], gt_traj[y_mask])
 
             loss.backward()
             torch.nn.utils.clip_grad_value_(model.parameters(), clip_value=1.0)
@@ -56,18 +60,18 @@ def decoder_training(model: nn.Module, train_data: torch.tensor, val_data: torch
         # validation
         model.eval()
         with torch.no_grad():
-            for traj, y_mask in tqdm(val_dataloader):
-                traj, y_mask = traj.to(device), y_mask.to(device)
-                input_traj = traj[:, :50]  # (N, T, 6)
-                gt_traj = traj[:, 50:, :2]
+            for traj in tqdm(val_dataloader):
+                traj = traj.to(device)
+                input_traj = traj[:, :50, :5]  # (N, 50, 5)
+                gt_traj = traj[:, 50:, :2]  # (N, 60, 2)
 
-                for i in range(60):
-                    pred = model(input_traj)[:, -1]  # (N, 5)
-                    pred = torch.cat([pred, torch.zeros(pred.shape[0], 1, device=traj.device)], dim=-1)  # (N, 6)
-                    input_traj = torch.cat([input_traj, pred[:,  None, :]], dim=1)
+                for i in range(60 // config.pred_frame):
+                    pred = model(input_traj)[:, -1]  # (N, pred_frame, 5)
+                    input_traj = torch.cat([input_traj, pred], dim=1)
 
                 pred_traj = input_traj[:, 50:, :2]
-                loss = loss_fn(pred_traj[y_mask[:, 50:]], gt_traj[y_mask[:, 50:]])
+                y_mask = ~((gt_traj[:, :, 0] == 0) & (gt_traj[:, :, 1] == 0))
+                loss = loss_fn(pred_traj[y_mask], gt_traj[y_mask])
                 val_loss.append(loss.item())
 
         if epoch < 70:
@@ -94,27 +98,7 @@ def decoder_training(model: nn.Module, train_data: torch.tensor, val_data: torch
         print(f"Epoch {epoch}: Train Loss = {mean_train_loss:.4f}, Val Loss = {np.mean(val_loss):.4f}\n")
 
 
-def inference(model: nn.Module, test_data: torch.tensor, config: argparse.Namespace, device):
-    model.to(device)
-    loss_fn = nn.MSELoss()
-    test_pbar = tqdm(DataLoader(test_data, batch_size=config.batch_size), position=0)
-    model.eval()
-    losses = []
-    with torch.no_grad():
-        for traj, trainable_mask, y_mask in tqdm(test_pbar):
-            traj, trainable_mask, y_mask = traj.to(device), trainable_mask.to(device), y_mask.to(device)
-            traj, y_mask = traj[trainable_mask], y_mask[trainable_mask]
-            input_traj = traj[:, :-1]
-            gt_traj = traj[:, 1:, :5]
-
-            pred = model(input_traj)  # (N*A, T, 5)
-            loss = loss_fn(pred[y_mask[:, 1:]], gt_traj[y_mask[:, 1:]])
-            print(pred, gt_traj)
-
-    print(f"Testing Loss: {np.mean(losses)}")
-
-
-def train(model: nn.Module, train_data: torch.tensor, val_data: torch.tensor, config: argparse.Namespace, device: str, run: wandb.sdk.wandb_run.Run, store_each_epoch: bool = False):
+def trains(model: nn.Module, train_data: torch.tensor, val_data: torch.tensor, config: argparse.Namespace, device: str, run: wandb.sdk.wandb_run.Run, store_each_epoch: bool = False):
     api = HfApi()
     model.to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=config.lr)
@@ -214,9 +198,14 @@ if __name__ == "__main__":
     parser.add_argument("--eta_min", default=1e-7, type=float)
     parser.add_argument("--epoch", default=200, type=int)
     parser.add_argument("--use_social_attn", default=False, type=bool)
+    parser.add_argument("--pred_frame", default=10, type=int)
     config = parser.parse_args()
 
-    #os.environ['WANDB_MODE'] = 'offline'
+    assert (
+            60 % config.pred_frame == 0
+    ), "60 must be divisible by pred_frame"
+
+    # os.environ['WANDB_MODE'] = 'offline'
     timestamp = datetime.now().strftime("%Y%m%d_%H%M")
     wandb.login(key="8b3e0d688aad58e8826aa06cbd342439d583cdc0")
     run = wandb.init(
@@ -242,13 +231,11 @@ if __name__ == "__main__":
                 },
     )
 
-    model = DecoderOnly(config)
+    model = Decoder(config)
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    train_data = ArgoverseDecoderOnly('train', True, config.dataset_path)
-    # model.load_state_dict(torch.load("20250420_0011_DecoderOnly_best.pt"))
-    # inference(model, train_data, config, device)
-    val_data = ArgoverseDecoderOnly('val', True, config.dataset_path)
-    decoder_training(model, train_data, val_data, config, device, run, True)
+    train_data = Argoverse('train', True, config.dataset_path)
+    val_data = Argoverse('val', True, config.dataset_path)
+    train(model, train_data, val_data, config, device, run, True)
     run.finish()
 
     # model = EncoderOnly(config)

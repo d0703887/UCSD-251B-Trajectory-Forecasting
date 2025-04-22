@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from models.attention_layer import EncoderLayer
+from models.attention_layer import TransformerLayer
 
 
 def get_temporal_mask(x: torch.tensor, config):
@@ -13,7 +13,7 @@ def get_temporal_mask(x: torch.tensor, config):
     N, A, T, _ = x.shape
 
     # generate invalid mask to eliminate entries with (x, y) == (0, 0)
-    x_reshape = x.reshape(N * A, T, 6)
+    x_reshape = x.reshape(N * A, T, 5)
     invalid_mask = (x_reshape[:, :, 0] == 0) & (x_reshape[:, :, 1] == 0)  # (N*A, T)
     invalid_mask = invalid_mask.unsqueeze(1).repeat(1, T, 1)  # (N*A, T, T)
 
@@ -32,7 +32,7 @@ def get_social_mask(x: torch.tensor, config):
     N, A, T, _ = x.shape
 
     # generate invalid mask to eliminate entries with (x, y) == (0, 0)
-    x_reshape = x.transpose(1, 2).reshape(N * T, A, 6)
+    x_reshape = x.transpose(1, 2).reshape(N * T, A, 5)
     invalid_mask = (x_reshape[:, :, 0] == 0) & (x_reshape[:, :, 1] == 0)  # (N*T, A)
     invalid_mask = invalid_mask.unsqueeze(1).repeat(1, A, 1)
 
@@ -48,8 +48,8 @@ class Transformer(nn.Module):
     def __init__(self, config):
         super().__init__()
         self.num_layer = config.num_layer
-        self.embedding = nn.Linear(6, config.embed_dim)
-        self.encoder_layer = nn.ModuleList([EncoderLayer(config) for _ in range(self.num_layer)])
+        self.embedding = nn.Linear(5, config.embed_dim)
+        self.encoder_layer = nn.ModuleList([TransformerLayer(config) for _ in range(self.num_layer)])
 
     def forward(self, x, temporal_mask=None, social_mask=None):
         """
@@ -62,7 +62,6 @@ class Transformer(nn.Module):
         for layer in self.encoder_layer:
             x = layer(x, temporal_mask, social_mask)
         return x
-
 
 class EncoderOnly(nn.Module):
     """
@@ -94,16 +93,17 @@ class EncoderOnly(nn.Module):
         return x.reshape(x.shape[0], 60, 2)
 
 
-class DecoderOnly(nn.Module):
+class Decoder(nn.Module):
     def __init__(self, config):
         super().__init__()
         self.config = config
         self.decoder = Transformer(config)
         self.use_social_attn = config.use_social_attn
+        self.pred_frame = config.pred_frame
         self.mlp = nn.ModuleList([
             nn.Linear(config.embed_dim, config.output_hidden_dim),
             nn.LeakyReLU(),
-            nn.Linear(config.output_hidden_dim, 5)
+            nn.Linear(config.output_hidden_dim, 5 * self.pred_frame)
         ])
 
     def forward(self, x):
@@ -120,7 +120,9 @@ class DecoderOnly(nn.Module):
         x = self.decoder(x, temporal_mask, social_mask)  # (N*A, 1, T, D)
         x = x.squeeze()
         for layer in self.mlp:
-            x = layer(x)
+            x = layer(x)  # (N*A, T, 5 * pred_frame)
+
+        x = x.reshape(x.shape[0], x.shape[1], -1, 5)  # (N*A, T, pred_frame, 5)
         return x
 
 
