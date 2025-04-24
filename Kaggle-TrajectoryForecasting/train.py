@@ -337,7 +337,7 @@ if __name__ == "__main__":
     val_data = Argoverse('val', True, config.dataset_path)
 
     # Stage 1
-    # train(model, train_data, val_data, config, device, run, True)
+    train(model, train_data, val_data, config, device, run, True)
 
     # Stage 2
     #model.load_state_dict(torch.load("20250422_1628_DecoderOnly_best.pt"))
