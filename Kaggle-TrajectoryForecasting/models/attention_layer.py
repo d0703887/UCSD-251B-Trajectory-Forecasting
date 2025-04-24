@@ -186,8 +186,8 @@ class TransformerLayer(nn.Module):
         self.norm2 = nn.RMSNorm(normalized_shape=self.embed_dim)
         self.norm3 = nn.RMSNorm(normalized_shape=self.embed_dim)
 
-        #self.mlp = SwiGLU(config)
-        self.mlp = nn.GELU()
+        self.mlp = SwiGLU(config)
+        #self.mlp = nn.GELU()
 
         self.dropout1 = nn.Dropout(self.dropout)
         self.dropout2 = nn.Dropout(self.dropout)
