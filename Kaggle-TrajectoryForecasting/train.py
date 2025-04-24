@@ -341,7 +341,7 @@ if __name__ == "__main__":
 
     # Stage 2
     #model.load_state_dict(torch.load("20250422_1628_DecoderOnly_best.pt"))
-    train_stage2(model, train_data, val_data, config, device, run, True)
+    #train_stage2(model, train_data, val_data, config, device, run, True)
 
     run.finish()
 
