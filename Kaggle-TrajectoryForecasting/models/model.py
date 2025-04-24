@@ -102,7 +102,7 @@ class Decoder(nn.Module):
         self.pred_frame = config.pred_frame
         self.mlp = nn.ModuleList([
             nn.Linear(config.embed_dim, config.output_hidden_dim),
-            nn.LeakyReLU(),
+            # nn.LeakyReLU(),
             nn.Linear(config.output_hidden_dim, 5 * self.pred_frame)
         ])
 
