@@ -333,8 +333,8 @@ if __name__ == "__main__":
 
     model = Decoder(config)
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    train_data = Argoverse('train', True, config.dataset_path)
-    val_data = Argoverse('val', True, config.dataset_path)
+    train_data = Argoverse('train', False, config.dataset_path)
+    val_data = Argoverse('val', False, config.dataset_path)
 
     # Stage 1
     train(model, train_data, val_data, config, device, run, True)
