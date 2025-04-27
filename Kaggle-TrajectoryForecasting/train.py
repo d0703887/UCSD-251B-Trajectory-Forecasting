@@ -37,11 +37,14 @@ def train(model: nn.Module, train_data: torch.tensor, val_data: torch.tensor, co
             N, T, D = traj.shape
             t_idx = torch.arange(T - config.pred_frame, device=traj.device).reshape(-1, 1) + torch.arange(1, config.pred_frame + 1, device=traj.device).reshape(1, -1)
             t_idx = t_idx[None, :, :].repeat(N, 1, 1)
-            gt_traj = torch.take_along_dim(traj[:, :, None, :5], t_idx[:, :,:, None], dim=1)
+            base_idx = torch.arange(T - config.pred_frame, device=traj.device).reshape(-1, 1) + torch.zeros(config.pred_frame, device=traj.device, dtype=torch.long).reshape(1, -1)
+            base_idx = base_idx[None, :, :].repeat(N, 1, 1)
+            gt_traj = torch.take_along_dim(traj[:, :, None, :5], t_idx[:, :, :, None], dim=1)
+            y_mask = ~((gt_traj[:, :, :, 0] == 0) & (gt_traj[:, :, :, 1] == 0))
+            gt_traj[:, :, :, :2] -= torch.take_along_dim(traj[:, :, None, :5], base_idx[:, :, :, None], dim=1)[:, :, :, :2]
             optimizer.zero_grad()
 
             pred = model(input_traj)  # (N*A, T, pred_frame, 5)
-            y_mask = ~((gt_traj[:, :, :, 0] == 0) & (gt_traj[:, :, :, 1] == 0))
             loss = loss_fn(pred[y_mask], gt_traj[y_mask])
             loss /= N
 
@@ -68,6 +71,7 @@ def train(model: nn.Module, train_data: torch.tensor, val_data: torch.tensor, co
 
                 for i in range(60 // config.pred_frame):
                     pred = model(input_traj)[:, -1]  # (N, pred_frame, 5)
+                    pred[:, :, :2] += input_traj[:, -1, :2].unsqueeze(1)
                     input_traj = torch.cat([input_traj, pred], dim=1)
 
                 pred_traj = input_traj[:, 50:, :2]
@@ -286,14 +290,14 @@ if __name__ == "__main__":
     parser.add_argument("--num_head", default=8, type=int)
     parser.add_argument("--hidden_dim", default=256, type=int)
     parser.add_argument("--dropout", default=0.0, type=float)
-    parser.add_argument("--num_layer", default=8, type=int)
+    parser.add_argument("--num_layer", default=4, type=int)
     parser.add_argument("--output_hidden_dim", default=256, type=int)
     parser.add_argument("--neighbor_dist", default=50, type=int)
     parser.add_argument("--use_rope", action="store_true")
     parser.add_argument("--dataset_path", default="dataset")
     parser.add_argument("--huggingface_repo", default="d0703887/CSE251B-Trajectory-Forecasting")
-    parser.add_argument("--batch_size", default=16, type=int)
-    parser.add_argument("--lr", default=1e-4, type=float)
+    parser.add_argument("--batch_size", default=64, type=int)
+    parser.add_argument("--lr", default=1e-5, type=float)
     parser.add_argument("--eta_min", default=1e-7, type=float)
     parser.add_argument("--epoch", default=100, type=int)
     parser.add_argument("--use_social_attn", default=False, type=bool)
@@ -304,7 +308,7 @@ if __name__ == "__main__":
             60 % config.pred_frame == 0
     ), "60 must be divisible by pred_frame"
 
-    # os.environ['WANDB_MODE'] = 'offline'
+    os.environ['WANDB_MODE'] = 'offline'
     timestamp = datetime.now().strftime("%Y%m%d_%H%M")
     wandb.login(key="8b3e0d688aad58e8826aa06cbd342439d583cdc0")
     run = wandb.init(
