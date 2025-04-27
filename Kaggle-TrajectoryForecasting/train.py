@@ -308,7 +308,7 @@ if __name__ == "__main__":
             60 % config.pred_frame == 0
     ), "60 must be divisible by pred_frame"
 
-    os.environ['WANDB_MODE'] = 'offline'
+    # os.environ['WANDB_MODE'] = 'offline'
     timestamp = datetime.now().strftime("%Y%m%d_%H%M")
     wandb.login(key="8b3e0d688aad58e8826aa06cbd342439d583cdc0")
     run = wandb.init(
