@@ -223,7 +223,7 @@ if __name__ == "__main__":
             config.pred_frame == 60
         ), "if using social attention, the predicting frame must be 60"
 
-    os.environ['WANDB_MODE'] = 'offline'
+    # gos.environ['WANDB_MODE'] = 'offline'
     timestamp = datetime.now().strftime("%Y%m%d_%H%M")
     wandb.login(key="8b3e0d688aad58e8826aa06cbd342439d583cdc0")
     run = wandb.init(
