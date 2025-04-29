@@ -36,21 +36,21 @@ class ArgoverseSocialAttn(Dataset):
         gt_trajs = []
         datas = []
         for i in tqdm(range(data.shape[0])):
-            for j in range(50):
-                if data[i, j, 0, 5] == 0:
-                    cur_data = data[i, :, :, :5]
-                    t_idx = torch.arange(50).reshape(-1, 1) + torch.arange(1, 61).reshape(1, -1)
-                    tmp = torch.take_along_dim(cur_data[0, :, None, :], t_idx[:, :, None], dim=0)  # (50, 60, 5)
-                    y_masks.append(~((tmp[:, :, 0] == 0) & (tmp[:, :, 1] == 0)))  # (50, 60)
+            # for j in range(50):
+            #     if data[i, j, 0, 5] == 0:
+            cur_data = data[i, :, :, :5]
+            t_idx = torch.arange(50).reshape(-1, 1) + torch.arange(1, 61).reshape(1, -1)
+            tmp = torch.take_along_dim(cur_data[0, :, None, :], t_idx[:, :, None], dim=0)  # (50, 60, 5)
+            y_masks.append(~((tmp[:, :, 0] == 0) & (tmp[:, :, 1] == 0)))  # (50, 60)
 
-                    tmp = cur_data[0].clone()
-                    cur_data[0] = cur_data[j].clone()
-                    cur_data[j] = tmp
-                    cur_data[:, :, :2] = cur_data[:, :, :2] - cur_data[0, 0, :2]
-                    datas.append(cur_data)
+            # tmp = cur_data[0].clone()
+            # cur_data[0] = cur_data[j].clone()
+            # cur_data[j] = tmp
+            cur_data[:, :, :2] = cur_data[:, :, :2] - cur_data[0, 0, :2]
+            datas.append(cur_data)
 
-                    gt_traj = torch.take_along_dim(cur_data[0, :, None, :], t_idx[:, :, None], dim=0)
-                    gt_trajs.append(gt_traj)
+            gt_traj = torch.take_along_dim(cur_data[0, :, None, :], t_idx[:, :, None], dim=0)
+            gt_trajs.append(gt_traj)
 
         self.data = datas
         self.y_mask = y_masks
