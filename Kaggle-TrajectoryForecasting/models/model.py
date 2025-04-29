@@ -108,21 +108,28 @@ class Decoder(nn.Module):
 
     def forward(self, x):
         """
-        x: (N*A, T, D)
+        x: (N, T, D) or (N, A, T, D)
         """
-        x = x.unsqueeze(1)
+        if len(x.shape) == 3:
+            x = x.unsqueeze(1)
         temporal_mask = get_temporal_mask(x, self.config)
         if self.use_social_attn:
             social_mask = get_social_mask(x, self.config)
         else:
             social_mask = None
 
-        x = self.decoder(x, temporal_mask, social_mask)  # (N*A, 1, T, D)
-        x = x.squeeze()
-        for layer in self.mlp:
-            x = layer(x)  # (N*A, T, 5 * pred_frame)
+        x = self.decoder(x, temporal_mask, social_mask)  # (N, 1, T, D) or (N, A, T, D)
+        if x.shape[1] == 1:
+            x = x.squeeze()
 
-        x = x.reshape(x.shape[0], x.shape[1], -1, 5)  # (N*A, T, pred_frame, 5)
+        for layer in self.mlp:
+            x = layer(x)  # (N, T, 5 * pred_frame) or (N, A, T, 5 * pred_frame)
+
+        if len(x.shape) == 3:
+            x = x.reshape(x.shape[0], x.shape[1], -1, 5)  # (N, T, pred_frame, 5)
+        else:
+            x = x[:, 0]
+            x = x.reshape(x.shape[0], x.shape[1], -1, 5)  #(N, T, pred_frame, 5)
         return x
 
 

@@ -180,14 +180,16 @@ class TransformerLayer(nn.Module):
         else:
             self.temporal_attention = nn.MultiheadAttention(self.embed_dim, self.num_head, dropout=self.dropout, batch_first=True)
 
-        self.social_attention = nn.MultiheadAttention(self.embed_dim, self.num_head, dropout=self.dropout, batch_first=True)
+        if config.use_rope:
+            self.social_attention = MultiheadAttentionWithRoPE(self.embed_dim, self.num_head, self.dropout)
+        else:
+            self.social_attention = nn.MultiheadAttention(self.embed_dim, self.num_head, dropout=self.dropout, batch_first=True)
 
         self.norm1 = nn.RMSNorm(normalized_shape=self.embed_dim)
         self.norm2 = nn.RMSNorm(normalized_shape=self.embed_dim)
         self.norm3 = nn.RMSNorm(normalized_shape=self.embed_dim)
 
         self.mlp = SwiGLU(config)
-        #self.mlp = nn.GELU()
 
         self.dropout1 = nn.Dropout(self.dropout)
         self.dropout2 = nn.Dropout(self.dropout)
