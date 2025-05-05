@@ -102,6 +102,7 @@ def train(model: nn.Module, train_data: torch.tensor, val_data: torch.tensor, co
         run.log({"Train Loss": mean_train_loss, "Val Loss": mean_val_loss, "Learning Rate": scheduler.get_last_lr()[0]})
         print(f"Epoch {epoch}: Train Loss = {mean_train_loss:.4f}, Val Loss = {np.mean(val_loss):.4f}\n")
 
+
 def train_w_social_attn(model: nn.Module, train_data: torch.tensor, val_data: torch.tensor, config: argparse.Namespace, device: str, run: wandb.sdk.wandb_run.Run, store_each_epoch: bool = False):
     api = HfApi()
     model.to(device)
@@ -140,9 +141,9 @@ def train_w_social_attn(model: nn.Module, train_data: torch.tensor, val_data: to
             train_pbar.set_postfix({"train loss": loss.item()})
 
         # check gradient
-        for name, param in model.named_parameters():
-            if param.grad is not None:
-                print(f"{name}: grad mean {param.grad.mean():.5f}, std {param.grad.std():.5f}")
+        # for name, param in model.named_parameters():
+        #     if param.grad is not None:
+        #         print(f"{name}: grad mean {param.grad.mean():.5f}, std {param.grad.std():.5f}")
 
         # validation
         model.eval()
@@ -179,6 +180,7 @@ def train_w_social_attn(model: nn.Module, train_data: torch.tensor, val_data: to
         run.log({"Train Loss": mean_train_loss, "Val Loss": mean_val_loss, "Learning Rate": scheduler.get_last_lr()[0]})
         print(f"Epoch {epoch}: Train Loss = {mean_train_loss:.4f}, Val Loss = {np.mean(val_loss):.4f}\n")
 
+
 if __name__ == "__main__":
     # config = {"embed_dim": 256,
     #           "num_head": 8,
@@ -213,6 +215,7 @@ if __name__ == "__main__":
     parser.add_argument("--epoch", default=100, type=int)
     parser.add_argument("--use_social_attn", action="store_true")
     parser.add_argument("--pred_frame", default=10, type=int)
+    parser.add_argument("--use_sampling", action="store_true")
     config = parser.parse_args()
 
     assert (
@@ -223,7 +226,7 @@ if __name__ == "__main__":
             config.pred_frame == 60
         ), "if using social attention, the predicting frame must be 60"
 
-    # gos.environ['WANDB_MODE'] = 'offline'
+    # os.environ['WANDB_MODE'] = 'offline'
     timestamp = datetime.now().strftime("%Y%m%d_%H%M")
     wandb.login(key="8b3e0d688aad58e8826aa06cbd342439d583cdc0")
     run = wandb.init(
@@ -246,7 +249,8 @@ if __name__ == "__main__":
                 "eta_min": config.eta_min,
                 "epoch": config.epoch,
                 "use_social_attn": config.use_social_attn,
-                "pred_frame": config.pred_frame
+                "pred_frame": config.pred_frame,
+                "use_sampling": config.use_sampling
                 },
     )
 
@@ -254,8 +258,12 @@ if __name__ == "__main__":
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     split_val = False
     if config.use_social_attn:
-        train_data = ArgoverseSocialAttn('train', split_val, config.dataset_path)
-        val_data = ArgoverseSocialAttn('val', split_val, config.dataset_path)
+        if config.use_sampling:
+            train_data = ArgoverseSocialAttnSampling('train', split_val, config.dataset_path)
+            val_data = ArgoverseSocialAttnSampling('val', split_val, config.dataset_path)
+        else:
+            train_data = ArgoverseSocialAttn('train', split_val, config.dataset_path)
+            val_data = ArgoverseSocialAttn('val', split_val, config.dataset_path)
     else:
         train_data = Argoverse('train', split_val, config.dataset_path)
         val_data = Argoverse('val', split_val, config.dataset_path)
