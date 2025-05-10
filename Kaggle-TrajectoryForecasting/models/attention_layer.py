@@ -35,12 +35,14 @@ class MultiheadAttentionWithRoPE(nn.Module):
             num_head: int,
             dropout: float = 0.0,
             bias: bool = True,
+            use_rope: bool = True
             ):
         super().__init__()
         self.embed_dim = embed_dim
         self.num_head = num_head
         self.dropout = dropout
         self.head_dim = embed_dim // num_head
+        self.use_rope = use_rope
         assert (
                 self.head_dim * num_head == self.embed_dim
         ), "embed_dim must be divisible by num_heads"
@@ -73,6 +75,7 @@ class MultiheadAttentionWithRoPE(nn.Module):
         need_weights: bool = True,
         attn_mask: Optional[Tensor] = None,
         average_attn_weights: bool = True,
+        distance_bias: Optional[Tensor] = None
     ):
         is_batched = query.dim() == 3
 
@@ -104,8 +107,9 @@ class MultiheadAttentionWithRoPE(nn.Module):
         q, k, v = linear(query, w_q, b_q), linear(key, w_k, b_k), linear(value, w_v, b_v)
 
         # rotary positional encoding
-        q = self.rotary_pos_enc(q.reshape(N, L, self.num_head, self.head_dim)).reshape(N, L, E)
-        k = self.rotary_pos_enc(k.reshape(N, L, self.num_head, self.head_dim)).reshape(N, L, E)
+        if self.use_rope:
+            q = self.rotary_pos_enc(q.reshape(N, L, self.num_head, self.head_dim)).reshape(N, L, E)
+            k = self.rotary_pos_enc(k.reshape(N, L, self.num_head, self.head_dim)).reshape(N, L, E)
 
         # (N, L, E) -> (L, N, E)
         q, k, v = q.transpose(0, 1).contiguous(), k.transpose(0, 1).contiguous(), v.transpose(0, 1).contiguous()
@@ -121,6 +125,9 @@ class MultiheadAttentionWithRoPE(nn.Module):
             attn_output_weights = torch.bmm(q_scaled, k.transpose(-2, -1))
             if attn_mask is not None:
                 attn_output_weights += attn_mask
+            if distance_bias is not None:
+                attn_output_weights += distance_bias
+
             attn_output_weights = F.softmax(attn_output_weights, dim=-1)
 
             if self.training:
@@ -173,17 +180,9 @@ class TransformerLayer(nn.Module):
         self.num_head = config.num_head
         self.hidden_dim = config.hidden_dim
         self.dropout = config.dropout
-        self.use_social_attn = config.use_social_attn
 
-        if config.use_rope:
-            self.temporal_attention = MultiheadAttentionWithRoPE(self.embed_dim, self.num_head, self.dropout)
-        else:
-            self.temporal_attention = nn.MultiheadAttention(self.embed_dim, self.num_head, dropout=self.dropout, batch_first=True)
-
-        if config.use_rope:
-            self.social_attention = MultiheadAttentionWithRoPE(self.embed_dim, self.num_head, self.dropout)
-        else:
-            self.social_attention = nn.MultiheadAttention(self.embed_dim, self.num_head, dropout=self.dropout, batch_first=True)
+        self.temporal_attention = MultiheadAttentionWithRoPE(self.embed_dim, self.num_head, self.dropout, True)
+        self.social_attention = MultiheadAttentionWithRoPE(self.embed_dim, self.num_head, self.dropout, False)
 
         self.norm1 = nn.RMSNorm(normalized_shape=self.embed_dim)
         self.norm2 = nn.RMSNorm(normalized_shape=self.embed_dim)
@@ -195,7 +194,7 @@ class TransformerLayer(nn.Module):
         self.dropout2 = nn.Dropout(self.dropout)
         self.dropout3 = nn.Dropout(self.dropout)
 
-    def forward(self, x, temporal_mask=None, social_mask=None):
+    def forward(self, x, temporal_mask=None, social_mask=None, distance_bias=None):
         """
         :param x: (N, A, T, D)
         :param temporal_mask:
@@ -209,16 +208,13 @@ class TransformerLayer(nn.Module):
         norm_x = self.norm1(x)
         x = x + self.dropout1(self.temporal_attention(norm_x, norm_x, norm_x, attn_mask=temporal_mask)[0])
 
-        if self.use_social_attn:
-            # attend on space
-            x = x.reshape(N, A, T, D).transpose(1, 2).reshape(N * T, A, D)
-            norm_x = self.norm2(x)
-            x = x + self.dropout2(self.social_attention(norm_x, norm_x, norm_x, attn_mask=social_mask)[0])
+        # attend on space
+        x = x.reshape(N, A, T, D).transpose(1, 2).reshape(N * T, A, D)
+        norm_x = self.norm2(x)
+        x = x + self.dropout2(self.social_attention(norm_x, norm_x, norm_x, attn_mask=social_mask, distance_bias=distance_bias)[0])
 
-            x = x.reshape(N, T, A, D).transpose(1, 2)
-            x = x + self.dropout3(self.mlp(self.norm3(x)))
-        else:
-            x = x.reshape(N, A, T, D)
-            x = x + self.dropout2(self.mlp(self.norm2(x)))
+        x = x.reshape(N, T, A, D).transpose(1, 2)
+        x = x + self.dropout3(self.mlp(self.norm3(x)))
+
 
         return x

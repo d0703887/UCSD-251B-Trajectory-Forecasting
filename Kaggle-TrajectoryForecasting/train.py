@@ -122,13 +122,12 @@ def train_w_social_attn(model: nn.Module, train_data: torch.tensor, val_data: to
 
         # training
         model.train()
-        for traj, y_mask, gt_traj in train_pbar:
-            traj, y_mask, gt_traj = traj.to(device), y_mask.to(device), gt_traj.to(device)
-            N, A, T, D = traj.shape
-            input_traj = traj[:, :, :-config.pred_frame, :5]
+        for traj, y_mask, gt_traj, invalid_entries in train_pbar:
+            traj, y_mask, gt_traj, invalid_entries = traj.to(device), y_mask.to(device), gt_traj.to(device), invalid_entries.to(device)
+            input_traj = traj[:, :, :-60, :5]
             optimizer.zero_grad()
 
-            pred = model(input_traj)  # (N, T, pred_frame, 5)
+            pred = model(input_traj, invalid_entries)  # (N, T, pred_frame, 5)
 
             loss = loss_fn(pred[y_mask], gt_traj[y_mask])
 
@@ -148,12 +147,12 @@ def train_w_social_attn(model: nn.Module, train_data: torch.tensor, val_data: to
         # validation
         model.eval()
         with torch.no_grad():
-            for traj, y_mask, gt_traj in tqdm(val_dataloader):
-                traj, y_mask, gt_traj = traj.to(device), y_mask.to(device), gt_traj.to(device)
-                input_traj = traj[:, :, :-config.pred_frame, :5]
+            for traj, y_mask, gt_traj, invalid_entries in tqdm(val_dataloader):
+                traj, y_mask, gt_traj, invalid_entries = traj.to(device), y_mask.to(device), gt_traj.to(device), invalid_entries.to(device)
+                input_traj = traj[:, :, :-60, :5]
                 gt_traj = gt_traj[:, -1, :, :2]
 
-                pred = model(input_traj)[:, -1, :, :2]  # (N, 60, 2)
+                pred = model(input_traj, invalid_entries)[:, -1, :, :2]  # (N, 60, 2)
                 loss = loss_fn(pred[y_mask[:, -1]], gt_traj[y_mask[:, -1]])
                 val_loss.append(loss.item())
 
@@ -206,27 +205,17 @@ if __name__ == "__main__":
     parser.add_argument("--num_layer", default=4, type=int)
     parser.add_argument("--output_hidden_dim", default=256, type=int)
     parser.add_argument("--neighbor_dist", default=50, type=int)
-    parser.add_argument("--use_rope", action="store_true")
     parser.add_argument("--dataset_path", default="dataset")
     parser.add_argument("--huggingface_repo", default="d0703887/CSE251B-Trajectory-Forecasting")
     parser.add_argument("--batch_size", default=64, type=int)
     parser.add_argument("--lr", default=1e-5, type=float)
     parser.add_argument("--eta_min", default=1e-7, type=float)
     parser.add_argument("--epoch", default=100, type=int)
-    parser.add_argument("--use_social_attn", action="store_true")
-    parser.add_argument("--pred_frame", default=10, type=int)
     parser.add_argument("--use_sampling", action="store_true")
+    parser.add_argument("--num_buckets", default=32, type=int)
     config = parser.parse_args()
 
-    assert (
-            60 % config.pred_frame == 0
-    ), "60 must be divisible by pred_frame"
-    if config.use_social_attn:
-        assert (
-            config.pred_frame == 60
-        ), "if using social attention, the predicting frame must be 60"
-
-    # os.environ['WANDB_MODE'] = 'offline'
+    os.environ['WANDB_MODE'] = 'offline'
     timestamp = datetime.now().strftime("%Y%m%d_%H%M")
     wandb.login(key="8b3e0d688aad58e8826aa06cbd342439d583cdc0")
     run = wandb.init(
@@ -240,7 +229,6 @@ if __name__ == "__main__":
                 "num_layer": config.num_layer,
                 "output_hidden_dim": config.output_hidden_dim,
                 "neighbor_dist": config.neighbor_dist,
-                "use_rope": config.use_rope,
                 "dataset_path": config.dataset_path,
                 "huggingface_repo": config.huggingface_repo,
 
@@ -248,29 +236,22 @@ if __name__ == "__main__":
                 "lr": config.lr,
                 "eta_min": config.eta_min,
                 "epoch": config.epoch,
-                "use_social_attn": config.use_social_attn,
-                "pred_frame": config.pred_frame,
-                "use_sampling": config.use_sampling
+                "use_sampling": config.use_sampling,
+                "num_buckets": config.num_buckets
                 },
     )
 
     model = Decoder(config)
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    split_val = False
-    if config.use_social_attn:
-        if config.use_sampling:
-            train_data = ArgoverseSocialAttnSampling('train', split_val, config.dataset_path)
-            val_data = ArgoverseSocialAttnSampling('val', split_val, config.dataset_path)
-        else:
-            train_data = ArgoverseSocialAttn('train', split_val, config.dataset_path)
-            val_data = ArgoverseSocialAttn('val', split_val, config.dataset_path)
-    else:
-        train_data = Argoverse('train', split_val, config.dataset_path)
-        val_data = Argoverse('val', split_val, config.dataset_path)
+    split_val = True
 
-    if config.use_social_attn:
-        train_w_social_attn(model, train_data, val_data, config, device, run, True)
+    if config.use_sampling:
+        train_data = ArgoverseSocialAttnSampling('train', split_val, config.dataset_path)
+        val_data = ArgoverseSocialAttnSampling('val', split_val, config.dataset_path)
     else:
-        train(model, train_data, val_data, config, device, run, True)
+        train_data = ArgoverseSocialAttn('train', split_val, config.dataset_path)
+        val_data = ArgoverseSocialAttn('val', split_val, config.dataset_path)
+
+    train_w_social_attn(model, train_data, val_data, config, device, run, True)
 
     run.finish()
