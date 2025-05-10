@@ -215,7 +215,7 @@ if __name__ == "__main__":
     parser.add_argument("--num_buckets", default=32, type=int)
     config = parser.parse_args()
 
-    os.environ['WANDB_MODE'] = 'offline'
+    #os.environ['WANDB_MODE'] = 'offline'
     timestamp = datetime.now().strftime("%Y%m%d_%H%M")
     wandb.login(key="8b3e0d688aad58e8826aa06cbd342439d583cdc0")
     run = wandb.init(
