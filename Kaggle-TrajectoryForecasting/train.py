@@ -243,7 +243,7 @@ if __name__ == "__main__":
 
     model = Decoder(config)
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    split_val = True
+    split_val = False
 
     if config.use_sampling:
         train_data = ArgoverseSocialAttnSampling('train', split_val, config.dataset_path)
