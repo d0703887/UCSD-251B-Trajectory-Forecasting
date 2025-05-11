@@ -108,7 +108,7 @@ def train_w_social_attn(model: nn.Module, train_data: torch.tensor, val_data: to
     model.to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=config.lr)
     loss_fn = nn.MSELoss()
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=70, eta_min=config.eta_min)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=120, eta_min=config.eta_min)
     best_loss = float("inf")
 
     # create checkpoint path
