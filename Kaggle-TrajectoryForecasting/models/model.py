@@ -43,7 +43,10 @@ def get_social_mask(x: torch.tensor, invalid_entries, config):
     invalid_mask = invalid_entries.transpose(1, 2).reshape(N*T, A)
     invalid_mask = invalid_mask.unsqueeze(1).repeat(1, A, 1)  # (N*T, A, A)
 
-    social_mask = social_mask | invalid_mask
+    ego_only_mask = torch.ones_like(dist, dtype=torch.bool)
+    ego_only_mask[:, 0, :] = torch.zeros((A), dtype=torch.bool)
+
+    social_mask = social_mask | invalid_mask | ego_only_mask
 
     # prevent generate NaN during attention
     for i in range(50):
@@ -98,7 +101,7 @@ class Decoder(nn.Module):
 
         temporal_mask = get_temporal_mask(x, invalid_entries, self.config)
         social_mask = get_social_mask(x, invalid_entries, self.config)
-
+    
         x = self.decoder(x, temporal_mask, social_mask, distance_bias)  # (N, A, T, D)
 
         x = x[:, 0]
