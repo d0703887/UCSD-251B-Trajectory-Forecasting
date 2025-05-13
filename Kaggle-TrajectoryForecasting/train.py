@@ -124,11 +124,16 @@ def train_w_social_attn(model: nn.Module, train_data: torch.tensor, val_data: to
         model.train()
         for traj, y_mask, gt_traj, invalid_entries in train_pbar:
             traj, y_mask, gt_traj, invalid_entries = traj.to(device), y_mask.to(device), gt_traj.to(device), invalid_entries.to(device)
-            input_traj = traj[:, :, :-60, :5]
+            input_traj = traj[:, :, :-60]
+            if not config.sliding_window:
+                y_mask = y_mask[:, -1]
+                gt_traj = gt_traj[:, -1]
             optimizer.zero_grad()
 
             pred = model(input_traj, invalid_entries)  # (N, T, pred_frame, 5)
 
+            if not config.sliding_window:
+                pred = pred[:, -1]
             loss = loss_fn(pred[y_mask], gt_traj[y_mask])
 
             loss.backward()
@@ -149,8 +154,8 @@ def train_w_social_attn(model: nn.Module, train_data: torch.tensor, val_data: to
         with torch.no_grad():
             for traj, y_mask, gt_traj, invalid_entries in tqdm(val_dataloader):
                 traj, y_mask, gt_traj, invalid_entries = traj.to(device), y_mask.to(device), gt_traj.to(device), invalid_entries.to(device)
-                input_traj = traj[:, :, :-60, :5]
-                gt_traj = gt_traj[:, -1, :, :2]
+                input_traj = traj[:, :, :-60]
+                gt_traj = gt_traj[:, -1]
 
                 pred = model(input_traj, invalid_entries)[:, -1, :, :2]  # (N, 60, 2)
                 loss = loss_fn(pred[y_mask[:, -1]], gt_traj[y_mask[:, -1]])
@@ -207,13 +212,14 @@ if __name__ == "__main__":
     parser.add_argument("--neighbor_dist", default=50, type=int)
     parser.add_argument("--dataset_path", default="dataset")
     parser.add_argument("--huggingface_repo", default="d0703887/CSE251B-Trajectory-Forecasting")
-    parser.add_argument("--batch_size", default=64, type=int)
+    parser.add_argument("--batch_size", default=16, type=int)
     parser.add_argument("--lr", default=1e-5, type=float)
-    parser.add_argument("--eta_min", default=1e-7, type=float)
-    parser.add_argument("--epoch", default=100, type=int)
+    parser.add_argument("--eta_min", default=5e-7, type=float)
+    parser.add_argument("--epoch", default=120, type=int)
     parser.add_argument("--use_sampling", action="store_true")
     parser.add_argument("--num_buckets", default=32, type=int)
     parser.add_argument("--split_val", action="store_true")
+    parser.add_argument("--sliding_window", action="store_true")
     config = parser.parse_args()
 
     #os.environ['WANDB_MODE'] = 'offline'

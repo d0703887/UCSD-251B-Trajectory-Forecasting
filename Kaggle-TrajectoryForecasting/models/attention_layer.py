@@ -208,7 +208,7 @@ class TransformerLayer(nn.Module):
         norm_x = self.norm1(x)
         x = x + self.dropout1(self.temporal_attention(norm_x, norm_x, norm_x, attn_mask=temporal_mask)[0])
 
-        # attend on space
+        # attend on space (only on last timeframe)
         x = x.reshape(N, A, T, D).transpose(1, 2).reshape(N * T, A, D)
         norm_x = self.norm2(x)
         x = x + self.dropout2(self.social_attention(norm_x, norm_x, norm_x, attn_mask=social_mask, distance_bias=distance_bias)[0])

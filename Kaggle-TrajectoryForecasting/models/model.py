@@ -36,17 +36,24 @@ def get_social_mask(x: torch.tensor, invalid_entries, config):
     """
     N, A, T, _ = x.shape
 
-    pos = x.transpose(1, 2).reshape(N * T, A, 5)[:, :, :2]  # (N*T, A, 2)
+    pos = x.transpose(1, 2).reshape(N * T, A, 6)[:, :, :2]  # (N*T, A, 2)
     dist = torch.cdist(pos, pos, p=2)  # (N*T, A, A)
     social_mask = dist > config.neighbor_dist  # (N*T, A, A)
 
     invalid_mask = invalid_entries.transpose(1, 2).reshape(N*T, A)
     invalid_mask = invalid_mask.unsqueeze(1).repeat(1, A, 1)  # (N*T, A, A)
 
+    # only attend ego agent with other agents
     ego_only_mask = torch.ones_like(dist, dtype=torch.bool)
     ego_only_mask[:, 0, :] = torch.zeros((A), dtype=torch.bool)
 
-    social_mask = social_mask | invalid_mask | ego_only_mask
+    # only do attention on last time frame
+    last_only_mask = torch.ones_like(dist, dtype=torch.bool)
+    last_frame_idx = T - 1
+    for n in range(N):
+        last_only_mask[n * T + last_frame_idx, :, :] = False  # Unmask only last frame
+
+    social_mask = social_mask | invalid_mask | ego_only_mask | last_only_mask
 
     # prevent generate NaN during attention
     for i in range(50):
@@ -58,12 +65,12 @@ class Transformer(nn.Module):
     def __init__(self, config):
         super().__init__()
         self.num_layer = config.num_layer
-        self.embedding = nn.Linear(5, config.embed_dim)
+        self.embedding = nn.Linear(6, config.embed_dim)
         self.encoder_layer = nn.ModuleList([TransformerLayer(config) for _ in range(self.num_layer)])
 
     def forward(self, x, temporal_mask=None, social_mask=None, distance_bias=None):
         """
-        :param x: (N, A, T, 5)
+        :param x: (N, A, T, 6)
         :param temporal_mask
         :param social_mask
         :return:
@@ -93,7 +100,7 @@ class Decoder(nn.Module):
         x: (N, A, T, 5)
         """
         N, A, T, _ = x.shape
-        pos = x.transpose(1, 2).reshape(N * T, A, 5)[:, :, :2]  # (N*T, A, 2)
+        pos = x.transpose(1, 2).reshape(N * T, A, 6)[:, :, :2]  # (N*T, A, 2)
         dist = torch.cdist(pos, pos, p=2)  # (N*T, A, A)
         bucket_ids = (dist / self.bin_size).long().clamp(max=self.config.num_buckets - 1)
         distance_bias = self.distance_embedding(bucket_ids)  #(N*T, A, A, num_head)
@@ -101,7 +108,7 @@ class Decoder(nn.Module):
 
         temporal_mask = get_temporal_mask(x, invalid_entries, self.config)
         social_mask = get_social_mask(x, invalid_entries, self.config)
-    
+
         x = self.decoder(x, temporal_mask, social_mask, distance_bias)  # (N, A, T, D)
 
         x = x[:, 0]

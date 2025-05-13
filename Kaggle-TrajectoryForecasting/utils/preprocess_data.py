@@ -37,7 +37,9 @@ class ArgoverseSocialAttn(Dataset):
         datas = []
         invalid_entries = []
         for i in tqdm(range(data.shape[0])):
-            cur_data = data[i, :, :, :5]
+            cur_data = data[i, :, :, :5]  # (A, T, 5)
+            v_linear = torch.sqrt(cur_data[:, :, 2] ** 2 + cur_data[:, :, 3] ** 2)  # (A, T)
+            cur_data = torch.cat([cur_data[:, :, :2], v_linear.unsqueeze(-1), cur_data[:, :, 2:]], dim=-1)
             invalid_entries.append((cur_data[:, :50, 0] == 0) & (cur_data[:, :50, 1] == 0))  # (50, 50)
 
             t_idx = torch.arange(50).reshape(-1, 1) + torch.arange(1, 61).reshape(1, -1)
