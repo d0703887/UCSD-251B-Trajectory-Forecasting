@@ -209,7 +209,7 @@ if __name__ == "__main__":
     parser.add_argument("--dropout", default=0.0, type=float)
     parser.add_argument("--num_layer", default=4, type=int)
     parser.add_argument("--output_hidden_dim", default=256, type=int)
-    parser.add_argument("--neighbor_dist", default=50, type=int)
+    parser.add_argument("--neighbor_dist", default=70, type=int)
     parser.add_argument("--dataset_path", default="dataset")
     parser.add_argument("--huggingface_repo", default="d0703887/CSE251B-Trajectory-Forecasting")
     parser.add_argument("--batch_size", default=16, type=int)

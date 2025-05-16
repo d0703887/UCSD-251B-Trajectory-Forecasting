@@ -46,7 +46,22 @@ class ArgoverseSocialAttn(Dataset):
             tmp = torch.take_along_dim(cur_data[0, :, None, :2], t_idx[:, :, None], dim=0)  # (50, 60, 5)
             y_masks.append(~((tmp[:, :, 0] == 0) & (tmp[:, :, 1] == 0)))  # (50, 60)
 
+            # normalize position
             cur_data[:, :, :2] = cur_data[:, :, :2] - cur_data[0, 0, :2]
+
+            # normalize heading angle
+            ego_heading = cur_data[0, 0, -1]
+            rot_mat = torch.tensor([[torch.cos(-ego_heading), -torch.sin(-ego_heading)], [torch.sin(-ego_heading), torch.cos(-ego_heading)]])
+
+            # rotate heading angle
+            cur_data[:, :, -1] = cur_data[:, :, -1] - ego_heading
+
+            # rotate vx, vy
+            cur_data[:, :, 3:5] = (rot_mat @ cur_data[:, :, 3:5].unsqueeze(-1)).squeeze()  # (2, 2) @ (A, T, 2, 1)
+
+            # rotate x, y
+            cur_data[:, :, :2] = (rot_mat @ cur_data[:, :, :2].unsqueeze(-1)).squeeze()  # (2, 2) @ (A, T, 2, 1)
+
             datas.append(cur_data)
 
             gt_traj = torch.take_along_dim(cur_data[0, :, None, :2], t_idx[:, :, None], dim=0)

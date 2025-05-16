@@ -77,7 +77,6 @@ if __name__ == "__main__":
     cls_frame = {}
     for i in range(10):
         cls_frame[i] = 0
-    print(train_data[0])
 
     for i in range(train_data.shape[0]):
         data_matrix = train_data[i]
@@ -89,13 +88,12 @@ if __name__ == "__main__":
         #             cls_frame[data_matrix[j, 0, 5]] += 1
         #             total_frames += 1
 
-        for j in range(data_matrix.shape[0]):
-            for frame in range(data_matrix.shape[1]):
-                if not abs(np.arctan2(data_matrix[j, frame, 3], data_matrix[j, frame, 2]) - data_matrix[j, frame, 4]) < 0.1:
-                    print(np.arctan2(data_matrix[j, frame, 3], data_matrix[j, frame, 2]), data_matrix[j, frame, 4])
+        for T in range(50):
+            print(f"x={data_matrix[0, T, 0]:>7.3f}, y={data_matrix[0, T, 1]:>7.3f}, vx={data_matrix[0, T, 2]:>5.3f}, vy={data_matrix[0, T, 3]:>5.3f}, heading angle={np.rad2deg(data_matrix[0, T, 4]):.2}")
+        exit(0)
 
-    for cls, frame in cls_frame.items():
-        print(f"{classes[cls]}: {frame} ({frame / total_frames})")
+    # for cls, frame in cls_frame.items():
+    #     print(f"{classes[cls]}: {frame} ({frame / total_frames})")
 
 
 
