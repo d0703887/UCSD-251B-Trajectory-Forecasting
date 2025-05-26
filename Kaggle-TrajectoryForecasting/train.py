@@ -249,9 +249,10 @@ if __name__ == "__main__":
     model = Decoder(config)
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     split_val = config.split_val
+    data = torch.tensor(np.load(os.path.join(config.dataset_path, "expanded_train.npz"))["data"])
 
-    train_data = ArgoverseSocialAttn('train', split_val, config.dataset_path)
-    val_data = ArgoverseSocialAttn('val', split_val, config.dataset_path)
+    train_data = ArgoverseSocialAttn(data, 'train', split_val, config.dataset_path)
+    val_data = ArgoverseSocialAttn(data, 'val', split_val, config.dataset_path)
 
     train_w_social_attn(model, train_data, val_data, config, device, run, True)
 
