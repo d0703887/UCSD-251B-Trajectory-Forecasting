@@ -63,7 +63,7 @@ def make_gif(data_matrix, name='example'):
 
 
 def load_dataset(path: str):
-    train_data = np.load(os.path.join(path, "train.npz"))["data"]
+    train_data = np.load(os.path.join(path, "expanded_train.npz"))["data"]
     test_data = np.load(os.path.join(path, "test_input.npz"))["data"]
     # print("train_data's shape", train_data.shape)
     # print("test_data's shape", test_data.shape)
@@ -78,22 +78,32 @@ if __name__ == "__main__":
     for i in range(10):
         cls_frame[i] = 0
 
-    for i in range(train_data.shape[0]):
-        data_matrix = train_data[i]
-        #make_gif(data_matrix, f"index{i}")
+    # train = np.load("../dataset/expanded_train.npz")['data']
+    # print(train.shape)
 
-        # for j in range(data_matrix.shape[0]):
-        #     for frame in range(data_matrix.shape[1]):
-        #         if data_matrix[j, frame, 0] != 0 and data_matrix[j, frame, 1] != 0:
-        #             cls_frame[data_matrix[j, 0, 5]] += 1
-        #             total_frames += 1
 
-        for T in range(50):
-            print(f"x={data_matrix[0, T, 0]:>7.3f}, y={data_matrix[0, T, 1]:>7.3f}, vx={data_matrix[0, T, 2]:>5.3f}, vy={data_matrix[0, T, 3]:>5.3f}, heading angle={np.rad2deg(data_matrix[0, T, 4]):.2}")
-        exit(0)
+    output = np.empty((93690, 50, 110, 6), dtype=np.float32)
+    total = 0
+    for i in tqdm(range(train_data.shape[0])):
+        # make_gif(data_matrix, f"index{i}")
+        data = train_data[i]  # (A, T, 6)
+        mask = ~((data[:, :, 0] == 0) & (data[:, :, 1] == 0))
+        mask_sum = np.sum(mask, axis=-1)
+        idxs = np.nonzero(mask_sum == 110)[0]
 
-    # for cls, frame in cls_frame.items():
-    #     print(f"{classes[cls]}: {frame} ({frame / total_frames})")
+        for idx in idxs:
+            if data[idx, 0, -1] != 0:
+                continue
+            cur_data = data.copy()
+            ego = cur_data[0].copy()
+            cur_data[0] = cur_data[idx].copy()
+            cur_data[idx] = ego
+            output[total] = cur_data
+            total += 1
+
+    with open("../dataset/expanded_train.npz", "wb") as fp:
+        np.savez(fp, data=output)
+
 
 
 

@@ -216,7 +216,6 @@ if __name__ == "__main__":
     parser.add_argument("--lr", default=1e-5, type=float)
     parser.add_argument("--eta_min", default=5e-7, type=float)
     parser.add_argument("--epoch", default=120, type=int)
-    parser.add_argument("--use_sampling", action="store_true")
     parser.add_argument("--num_buckets", default=32, type=int)
     parser.add_argument("--split_val", action="store_true")
     parser.add_argument("--sliding_window", action="store_true")
@@ -243,7 +242,6 @@ if __name__ == "__main__":
                 "lr": config.lr,
                 "eta_min": config.eta_min,
                 "epoch": config.epoch,
-                "use_sampling": config.use_sampling,
                 "num_buckets": config.num_buckets
                 },
     )
@@ -252,12 +250,8 @@ if __name__ == "__main__":
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     split_val = config.split_val
 
-    if config.use_sampling:
-        train_data = ArgoverseSocialAttnSampling('train', split_val, config.dataset_path)
-        val_data = ArgoverseSocialAttnSampling('val', split_val, config.dataset_path)
-    else:
-        train_data = ArgoverseSocialAttn('train', split_val, config.dataset_path)
-        val_data = ArgoverseSocialAttn('val', split_val, config.dataset_path)
+    train_data = ArgoverseSocialAttn('train', split_val, config.dataset_path)
+    val_data = ArgoverseSocialAttn('val', split_val, config.dataset_path)
 
     train_w_social_attn(model, train_data, val_data, config, device, run, True)
 
