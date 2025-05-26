@@ -107,7 +107,7 @@ def train_w_social_attn(model: nn.Module, train_data: torch.tensor, val_data: to
     api = HfApi()
     model.to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=config.lr)
-    loss_fn = nn.MSELoss()
+    loss_fn = nn.MSELoss(reduction='sum')
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=120, eta_min=config.eta_min)
     best_loss = float("inf")
 
@@ -135,6 +135,7 @@ def train_w_social_attn(model: nn.Module, train_data: torch.tensor, val_data: to
             if not config.sliding_window:
                 pred = pred[:, -1]
             loss = loss_fn(pred[y_mask], gt_traj[y_mask])
+            loss /= pred.shape[0]
 
             loss.backward()
             # torch.nn.utils.clip_grad_value_(model.parameters(), clip_value=1.0)
