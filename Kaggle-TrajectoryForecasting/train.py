@@ -108,6 +108,7 @@ def train_w_social_attn(model: nn.Module, train_data: torch.tensor, val_data: to
     model.to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=config.lr)
     loss_fn = nn.MSELoss(reduction='sum')
+    val_loss_fn = nn.MSELoss()
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=120, eta_min=config.eta_min)
     best_loss = float("inf")
 
@@ -159,7 +160,7 @@ def train_w_social_attn(model: nn.Module, train_data: torch.tensor, val_data: to
                 gt_traj = gt_traj[:, -1]
 
                 pred = model(input_traj, invalid_entries)[:, -1, :, :2]  # (N, 60, 2)
-                loss = loss_fn(pred[y_mask[:, -1]], gt_traj[y_mask[:, -1]])
+                loss = val_loss_fn(pred[y_mask[:, -1]], gt_traj[y_mask[:, -1]])
                 val_loss.append(loss.item())
 
         if epoch < 70:
@@ -171,10 +172,10 @@ def train_w_social_attn(model: nn.Module, train_data: torch.tensor, val_data: to
             torch.save(model.state_dict(), os.path.join(run.name, f"{run.name}_best.pt"))
 
         if store_each_epoch:
-            if epoch % 4 == 0:
+            if epoch % 2 == 0:
                 torch.save(model.state_dict(), os.path.join(run.name, f"{run.name}_{epoch}_{mean_val_loss:.2f}.pt"))
 
-        if epoch % 10 == 0:
+        if epoch % 4 == 0:
             api.upload_folder(
                 folder_path=run.name,
                 repo_id=config.huggingface_repo,

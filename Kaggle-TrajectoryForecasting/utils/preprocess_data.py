@@ -9,7 +9,7 @@ class ArgoverseSocialAttn(Dataset):
     def __init__(self, data, mode: str = 'train', split_val: bool = True, dataset_path: str = "../dataset"):
         # data = torch.tensor(load_dataset(dataset_path)[0], dtype=torch.float32)
         if split_val:
-            data = data[:int(len(data) * 0.85)] if mode == 'train' else data[int(len(data) * 0.85):]
+            data = data[:int(len(data) * 0.8)] if mode == 'train' else data[int(len(data) * 0.8):]
         #data = data[:10]
 
         y_masks = []
