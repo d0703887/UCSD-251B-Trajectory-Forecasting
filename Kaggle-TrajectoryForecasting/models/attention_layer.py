@@ -96,6 +96,7 @@ class MultiheadAttentionWithRoPE(nn.Module):
         )
 
         N, L, E = query.shape
+        _, S, _ = key.shape
 
         w_q, w_k, w_v = self.in_proj_weight.chunk(3)
         if self.in_proj_bias is None:
@@ -109,15 +110,15 @@ class MultiheadAttentionWithRoPE(nn.Module):
         # rotary positional encoding
         if self.use_rope:
             q = self.rotary_pos_enc(q.reshape(N, L, self.num_head, self.head_dim)).reshape(N, L, E)
-            k = self.rotary_pos_enc(k.reshape(N, L, self.num_head, self.head_dim)).reshape(N, L, E)
+            k = self.rotary_pos_enc(k.reshape(N, S, self.num_head, self.head_dim)).reshape(N, S, E)
 
         # (N, L, E) -> (L, N, E)
         q, k, v = q.transpose(0, 1).contiguous(), k.transpose(0, 1).contiguous(), v.transpose(0, 1).contiguous()
 
         # (L, N, E) -> (N * num_head, L, head_dim)
         q = q.view(L, N * self.num_head, self.head_dim).transpose(0, 1)
-        k = k.view(L, N * self.num_head, self.head_dim).transpose(0, 1)
-        v = v.view(L, N * self.num_head, self.head_dim).transpose(0, 1)
+        k = k.view(S, N * self.num_head, self.head_dim).transpose(0, 1)
+        v = v.view(S, N * self.num_head, self.head_dim).transpose(0, 1)
 
         if need_weights:
             E = q.shape[-1]
@@ -139,8 +140,8 @@ class MultiheadAttentionWithRoPE(nn.Module):
             attn_output = attn_output.transpose(0, 1).contiguous().view(L, N, self.embed_dim).transpose(0, 1)
             attn_output = self.out_proj(attn_output)
 
-            # (N * num_head, L, L) -> (N, num_head, L, L)
-            attn_output_weights = attn_output_weights.view(N, self.num_head, L, L)
+            # (N * num_head, L, S) -> (N, num_head, L, S)
+            attn_output_weights = attn_output_weights.view(N, self.num_head, L, S)
             if average_attn_weights:
                 attn_output_weights = attn_output_weights.mean(dim=1)
 
@@ -160,8 +161,8 @@ class MultiheadAttentionWithRoPE(nn.Module):
                     attn_mask = attn_mask.view(N, self.num_head, -1, L)
 
             q = q.view(N, self.num_head, L, self.head_dim)
-            k = k.view(N, self.num_head, L, self.head_dim)
-            v = v.view(N, self.num_head, L, self.head_dim)
+            k = k.view(N, self.num_head, S, self.head_dim)
+            v = v.view(N, self.num_head, S, self.head_dim)
 
             # (N, num_head, L, head_dim) -> (N, L, E)
             attn_output = F.scaled_dot_product_attention(q, k, v, attn_mask, dropout_p=self.dropout if self.training else 0.0)
@@ -173,6 +174,33 @@ class MultiheadAttentionWithRoPE(nn.Module):
             return attn_output, None
 
 
+class EncoderLayer(nn.Module):
+    def __init__(self, config, use_rope):
+        super().__init__()
+        self.self_attention = MultiheadAttentionWithRoPE(config.embed_dim, config.num_head, config.dropout, True, use_rope)
+
+        self.norm1 = nn.RMSNorm(normalized_shape=config.embed_dim)
+        self.norm2 = nn.RMSNorm(normalized_shape=config.embed_dim)
+
+        self.mlp = SwiGLU(config)
+
+        self.dropout1 = nn.Dropout(config.dropout)
+        self.dropout2 = nn.Dropout(config.dropout)
+
+    def forward(self, x, attn_mask=None, distance_bias=None):
+        """
+        :param x: (N * A, T, D) for temporal attention, (N * T, A, D) for social attention
+        :param attn_mask:
+        :param distance_bias:
+        :return:
+        """
+        norm_x = self.norm1(x)
+        x = x + self.dropout1(self.self_attention(norm_x, norm_x, norm_x, attn_mask=attn_mask, distance_bias=distance_bias)[0])
+        x = x + self.dropout2(self.mlp(self.norm2(x)))
+
+        return x
+
+
 class TransformerLayer(nn.Module):
     def __init__(self, config):
         super().__init__()
@@ -181,8 +209,8 @@ class TransformerLayer(nn.Module):
         self.hidden_dim = config.hidden_dim
         self.dropout = config.dropout
 
-        self.temporal_attention = MultiheadAttentionWithRoPE(self.embed_dim, self.num_head, self.dropout, True)
-        self.social_attention = MultiheadAttentionWithRoPE(self.embed_dim, self.num_head, self.dropout, False)
+        self.temporal_attention = MultiheadAttentionWithRoPE(self.embed_dim, self.num_head, self.dropout, True, True)
+        self.social_attention = MultiheadAttentionWithRoPE(self.embed_dim, self.num_head, self.dropout, True, False)
 
         self.norm1 = nn.RMSNorm(normalized_shape=self.embed_dim)
         self.norm2 = nn.RMSNorm(normalized_shape=self.embed_dim)

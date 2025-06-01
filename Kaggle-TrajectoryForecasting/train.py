@@ -126,30 +126,20 @@ def train_w_social_attn(model: nn.Module, train_data: torch.tensor, val_data: to
         for traj, y_mask, gt_traj, invalid_entries in train_pbar:
             traj, y_mask, gt_traj, invalid_entries = traj.to(device), y_mask.to(device), gt_traj.to(device), invalid_entries.to(device)
             input_traj = traj[:, :, :-60]
-            if not config.sliding_window:
-                y_mask = y_mask[:, -1]
-                gt_traj = gt_traj[:, -1]
+
             optimizer.zero_grad()
 
-            pred = model(input_traj, invalid_entries)  # (N, T, pred_frame, 5)
+            pred = model(input_traj, invalid_entries)  # (N, pred_frame, 5)
 
-            if not config.sliding_window:
-                pred = pred[:, -1]
             loss = loss_fn(pred[y_mask], gt_traj[y_mask])
             loss /= pred.shape[0]
 
             loss.backward()
-            # torch.nn.utils.clip_grad_value_(model.parameters(), clip_value=1.0)
             optimizer.step()
 
             train_loss.append(loss.item())
             train_pbar.set_description(f"Epoch {epoch}")
             train_pbar.set_postfix({"train loss": loss.item()})
-
-        # check gradient
-        # for name, param in model.named_parameters():
-        #     if param.grad is not None:
-        #         print(f"{name}: grad mean {param.grad.mean():.5f}, std {param.grad.std():.5f}")
 
         # validation
         model.eval()
@@ -157,14 +147,14 @@ def train_w_social_attn(model: nn.Module, train_data: torch.tensor, val_data: to
             for traj, y_mask, gt_traj, invalid_entries in tqdm(val_dataloader):
                 traj, y_mask, gt_traj, invalid_entries = traj.to(device), y_mask.to(device), gt_traj.to(device), invalid_entries.to(device)
                 input_traj = traj[:, :, :-60]
-                gt_traj = gt_traj[:, -1]
 
-                pred = model(input_traj, invalid_entries)[:, -1, :, :2]  # (N, 60, 2)
-                loss = val_loss_fn(pred[y_mask[:, -1]], gt_traj[y_mask[:, -1]])
+                pred = model(input_traj, invalid_entries)  # (N, 60, 2)
+                loss = val_loss_fn(pred[y_mask], gt_traj[y_mask])
                 val_loss.append(loss.item())
 
         if epoch < 70:
             scheduler.step()
+
         mean_val_loss = np.mean(val_loss)
         mean_train_loss = np.mean(train_loss)
         if mean_val_loss < best_loss:
@@ -188,27 +178,11 @@ def train_w_social_attn(model: nn.Module, train_data: torch.tensor, val_data: to
 
 
 if __name__ == "__main__":
-    # config = {"embed_dim": 256,
-    #           "num_head": 8,
-    #           "hidden_dim": 256,
-    #           "dropout": 0.0,
-    #           "num_layer": 8,
-    #           "output_hidden_dim": 256,
-    #           "neighbor_dist": 50,
-    #           "use_rope": True,
-    #           "dataset_path": "dataset",
-    #
-    #           "batch_size": 8,
-    #           "lr": 1e-4,
-    #           "eta_min": 1e-7,
-    #           "epoch": 200
-    #           }
-
     parser = argparse.ArgumentParser()
     parser.add_argument("--embed_dim", default=256, type=int)
-    parser.add_argument("--num_head", default=8, type=int)
     parser.add_argument("--hidden_dim", default=256, type=int)
     parser.add_argument("--dropout", default=0.0, type=float)
+    parser.add_argument("--num_head", default=8, type=int)
     parser.add_argument("--num_layer", default=4, type=int)
     parser.add_argument("--output_hidden_dim", default=256, type=int)
     parser.add_argument("--neighbor_dist", default=70, type=int)
@@ -220,7 +194,6 @@ if __name__ == "__main__":
     parser.add_argument("--epoch", default=120, type=int)
     parser.add_argument("--num_buckets", default=32, type=int)
     parser.add_argument("--split_val", action="store_true")
-    parser.add_argument("--sliding_window", action="store_true")
     config = parser.parse_args()
 
     #os.environ['WANDB_MODE'] = 'offline'
@@ -248,7 +221,7 @@ if __name__ == "__main__":
                 },
     )
 
-    model = Decoder(config)
+    model = SequentialEncoder(config)
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     split_val = config.split_val
     data = torch.tensor(np.load(os.path.join(config.dataset_path, "train.npz"))["data"], dtype=torch.float32)

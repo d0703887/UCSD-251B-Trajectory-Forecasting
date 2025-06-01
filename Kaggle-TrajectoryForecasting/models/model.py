@@ -1,7 +1,6 @@
 import torch
 import torch.nn as nn
-from models.attention_layer import TransformerLayer
-
+from models.attention_layer import TransformerLayer, MultiheadAttentionWithRoPE, EncoderLayer
 
 def get_temporal_mask(x: torch.tensor, invalid_entries, config):
     """
@@ -61,32 +60,33 @@ def get_social_mask(x: torch.tensor, invalid_entries, config):
     return social_mask.repeat(config.num_head, 1, 1)
 
 
-class Transformer(nn.Module):
-    def __init__(self, config):
+class Encoder(nn.Module):
+    def __init__(self, config, use_rope):
         super().__init__()
-        self.num_layer = config.num_layer
-        self.embedding = nn.Linear(6, config.embed_dim)
-        self.encoder_layer = nn.ModuleList([TransformerLayer(config) for _ in range(self.num_layer)])
+        self.config = config
+        self.use_rope = use_rope
+        self.num_layer = config.num_layer // 2
+        self.encoder_layer = nn.ModuleList([EncoderLayer(config, use_rope) for _ in range(self.num_layer)])
 
-    def forward(self, x, temporal_mask=None, social_mask=None, distance_bias=None):
+    def forward(self, x, attn_mask=None, distance_bias=None):
         """
-        :param x: (N, A, T, 6)
-        :param temporal_mask
-        :param social_mask
+        :param x
+        :param attn_mask
+        :param distance_bias
         :return:
         """
-        x = self.embedding(x)
         for layer in self.encoder_layer:
-            x = layer(x, temporal_mask, social_mask, distance_bias)
+            x = layer(x, attn_mask, distance_bias)
         return x
 
-
-class Decoder(nn.Module):
+class SequentialEncoder(nn.Module):
     def __init__(self, config):
         super().__init__()
         self.config = config
-        self.decoder = Transformer(config)
-        self.distance_embedding = nn.Embedding(config.num_buckets, config.num_head)
+        self.embedding = nn.Linear(6, config.embed_dim)
+        self.temporal_encoder = Encoder(config, True)
+        self.social_encoder = Encoder(config, False)
+        self.agent_distance_embedding = nn.Embedding(config.num_buckets, config.num_head)
         self.pred_frame = 60
         self.bin_size = config.neighbor_dist / config.num_buckets
         self.mlp = nn.ModuleList([
@@ -97,25 +97,76 @@ class Decoder(nn.Module):
 
     def forward(self, x, invalid_entries):
         """
-        x: (N, A, T, 5)
+        x: (N, A, T, 6)
         """
         N, A, T, _ = x.shape
+        D = self.config.embed_dim
+
+        # agent features
         pos = x.transpose(1, 2).reshape(N * T, A, 6)[:, :, :2]  # (N*T, A, 2)
         dist = torch.cdist(pos, pos, p=2)  # (N*T, A, A)
         bucket_ids = (dist / self.bin_size).long().clamp(max=self.config.num_buckets - 1)
-        distance_bias = self.distance_embedding(bucket_ids)  #(N*T, A, A, num_head)
+        distance_bias = self.agent_distance_embedding(bucket_ids)  # (N*T, A, A, num_head)
+        distance_bias = distance_bias.permute(0, 3, 1, 2).reshape(N * T * self.config.num_head, A, A).to(x.device)
+
+        temporal_mask = get_temporal_mask(x, invalid_entries, self.config)
+        social_mask = get_social_mask(x, invalid_entries, self.config)
+
+        x = self.embedding(x)
+
+        x = x.reshape(N * A, T, D)
+        x = self.temporal_encoder(x, temporal_mask)
+
+        x = x.reshape(N, A, T, D).transpose(1, 2).reshape(N * T, A, D)
+        x = self.social_encoder(x, social_mask, distance_bias)
+
+        x = x.reshape(N, T, A, D).transpose(1, 2)[:, 0, -1]  # (N, D)
+
+        for layer in self.mlp:
+            x = layer(x)  # (N, 2 * pred_frame)
+
+        x = x.reshape(x.shape[0], -1, 2)  # (N, pred_frame, 2)
+        return x
+
+
+class EncoderOnly(nn.Module):
+    def __init__(self, config):
+        super().__init__()
+        self.config = config
+        self.agent_encoder = Encoder(config)
+        self.agent_distance_embedding = nn.Embedding(config.num_buckets, config.num_head)
+        self.pred_frame = 60
+        self.bin_size = config.neighbor_dist / config.num_buckets
+        self.mlp = nn.ModuleList([
+            nn.Linear(config.embed_dim, config.output_hidden_dim),
+            # nn.LeakyReLU(),
+            nn.Linear(config.output_hidden_dim, 2 * self.pred_frame)
+        ])
+
+    def forward(self, x, invalid_entries):
+        """
+        x: (N, A, T, 6)
+        """
+        N, A, T, _ = x.shape
+
+        # agent features
+        pos = x.transpose(1, 2).reshape(N * T, A, 6)[:, :, :2]  # (N*T, A, 2)
+        dist = torch.cdist(pos, pos, p=2)  # (N*T, A, A)
+        bucket_ids = (dist / self.bin_size).long().clamp(max=self.config.num_buckets - 1)
+        distance_bias = self.agent_distance_embedding(bucket_ids)  #(N*T, A, A, num_head)
         distance_bias = distance_bias.permute(0, 3, 1, 2).reshape(N*T*self.config.num_head, A, A).to(x.device)
 
         temporal_mask = get_temporal_mask(x, invalid_entries, self.config)
         social_mask = get_social_mask(x, invalid_entries, self.config)
 
-        x = self.decoder(x, temporal_mask, social_mask, distance_bias)  # (N, A, T, D)
+        x = self.agent_encoder(x, temporal_mask, social_mask, distance_bias)  # (N, A, T, D)
+        x = x[:, 0, -1]  # (N, D)
 
-        x = x[:, 0]
+
         for layer in self.mlp:
-            x = layer(x)  # (N, T, 2 * pred_frame)
+            x = layer(x)  # (N, 2 * pred_frame)
 
-        x = x.reshape(x.shape[0], x.shape[1], -1, 2)  #(N, T, pred_frame, 2)
+        x = x.reshape(x.shape[0], -1, 2)  # (N, pred_frame, 2)
         return x
 
 

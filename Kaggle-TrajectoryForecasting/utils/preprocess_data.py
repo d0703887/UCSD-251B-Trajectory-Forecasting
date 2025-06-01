@@ -7,10 +7,8 @@ from tqdm import tqdm
 
 class ArgoverseSocialAttn(Dataset):
     def __init__(self, data, mode: str = 'train', split_val: bool = True, dataset_path: str = "../dataset"):
-        # data = torch.tensor(load_dataset(dataset_path)[0], dtype=torch.float32)
         if split_val:
             data = data[:int(len(data) * 0.8)] if mode == 'train' else data[int(len(data) * 0.8):]
-        #data = data[:10]
 
         y_masks = []
         gt_trajs = []
@@ -22,9 +20,13 @@ class ArgoverseSocialAttn(Dataset):
             cur_data = torch.cat([cur_data[:, :, :2], v_linear.unsqueeze(-1), cur_data[:, :, 2:]], dim=-1)
             invalid_entries.append((cur_data[:, :50, 0] == 0) & (cur_data[:, :50, 1] == 0))  # (50, 50)
 
-            t_idx = torch.arange(50).reshape(-1, 1) + torch.arange(1, 61).reshape(1, -1)
-            tmp = torch.take_along_dim(cur_data[0, :, None, :2], t_idx[:, :, None], dim=0)  # (50, 60, 5)
-            y_masks.append(~((tmp[:, :, 0] == 0) & (tmp[:, :, 1] == 0)))  # (50, 60)
+
+            tmp = cur_data[0, 50:, :2]  #(60, 2)
+            y_masks.append(~((tmp[:, 0] == 0) & (tmp[:, 1] == 0)))
+
+            # t_idx = torch.arange(50).reshape(-1, 1) + torch.arange(1, 61).reshape(1, -1)
+            # tmp = torch.take_along_dim(cur_data[0, :, None, :2], t_idx[:, :, None], dim=0)  # (50, 60, 5)
+            # y_masks.append(~((tmp[:, :, 0] == 0) & (tmp[:, :, 1] == 0)))  # (50, 60)
 
             # normalize position
             cur_data[:, :, :2] = cur_data[:, :, :2] - cur_data[0, 0, :2]
@@ -44,8 +46,9 @@ class ArgoverseSocialAttn(Dataset):
 
             datas.append(cur_data)
 
-            gt_traj = torch.take_along_dim(cur_data[0, :, None, :2], t_idx[:, :, None], dim=0)
-            gt_trajs.append(gt_traj)
+            gt_trajs.append(cur_data[0, 50:, :2])
+            # gt_traj = torch.take_along_dim(cur_data[0, :, None, :2], t_idx[:, :, None], dim=0)
+            # gt_trajs.append(gt_traj)
 
         self.data = datas
         self.y_mask = y_masks
