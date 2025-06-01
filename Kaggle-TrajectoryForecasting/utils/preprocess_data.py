@@ -8,7 +8,7 @@ from tqdm import tqdm
 class ArgoverseSocialAttn(Dataset):
     def __init__(self, data, mode: str = 'train', split_val: bool = True, dataset_path: str = "../dataset"):
         if split_val:
-            data = data[:int(len(data) * 0.8)] if mode == 'train' else data[int(len(data) * 0.8):]
+            data = data[:int(len(data) * 0.85)] if mode == 'train' else data[int(len(data) * 0.85):]
 
         y_masks = []
         gt_trajs = []
