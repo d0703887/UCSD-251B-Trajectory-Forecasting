@@ -198,7 +198,7 @@ if __name__ == "__main__":
 
     #os.environ['WANDB_MODE'] = 'offline'
     timestamp = datetime.now().strftime("%Y%m%d_%H%M")
-    wandb.login(key="8b3e0d688aad58e8826aa06cbd342439d583cdc0")
+    wandb.login(key="")
     run = wandb.init(
         entity="d0703887",
         project="CSE251b-Trajectory Forecasting",
