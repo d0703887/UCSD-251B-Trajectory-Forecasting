@@ -96,7 +96,7 @@ def train(model: nn.Module, train_data: torch.tensor, val_data: torch.tensor, co
                 folder_path=run.name,
                 repo_id=config.huggingface_repo,
                 path_in_repo=f"{run.name}",
-                token="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"
+                token=""
             )
 
         run.log({"Train Loss": mean_train_loss, "Val Loss": mean_val_loss, "Learning Rate": scheduler.get_last_lr()[0]})
