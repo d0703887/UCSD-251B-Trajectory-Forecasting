@@ -77,6 +77,8 @@ class MultiheadAttentionWithRoPE(nn.Module):
         average_attn_weights: bool = True,
         distance_bias: Optional[Tensor] = None
     ):
+        # print(
+        #     f"DEBUG: Any NaN in inputs? Query: {torch.isnan(query).any()}, Key: {torch.isnan(key).any()}, Value: {torch.isnan(value).any()}")
         is_batched = query.dim() == 3
 
         if not is_batched:
@@ -111,6 +113,7 @@ class MultiheadAttentionWithRoPE(nn.Module):
         if self.use_rope:
             q = self.rotary_pos_enc(q.reshape(N, L, self.num_head, self.head_dim)).reshape(N, L, E)
             k = self.rotary_pos_enc(k.reshape(N, S, self.num_head, self.head_dim)).reshape(N, S, E)
+            # print(f"DEBUG: After RoPE, any NaN? Q: {torch.isnan(q).any()}, K: {torch.isnan(k).any()}")
 
         # (N, L, E) -> (L, N, E)
         q, k, v = q.transpose(0, 1).contiguous(), k.transpose(0, 1).contiguous(), v.transpose(0, 1).contiguous()
@@ -124,13 +127,17 @@ class MultiheadAttentionWithRoPE(nn.Module):
             E = q.shape[-1]
             q_scaled = q * math.sqrt(1.0 / float(E))
             attn_output_weights = torch.bmm(q_scaled, k.transpose(-2, -1))
+            # print(
+            #     f"DEBUG: After MatMul, any Inf/NaN in scores? Inf: {torch.isinf(attn_output_weights).any()}, NaN: {torch.isnan(attn_output_weights).any()}")
             if attn_mask is not None:
                 attn_output_weights += attn_mask
+                # print(
+                #     f"DEBUG: After adding mask, any NaN? {torch.isnan(attn_output_weights).any()}")  # <--- LIKELY CULPRIT
             if distance_bias is not None:
                 attn_output_weights += distance_bias
 
             attn_output_weights = F.softmax(attn_output_weights, dim=-1)
-
+            # print(f"DEBUG: After softmax, any NaN? {torch.isnan(attn_output_weights).any()}")
             if self.training:
                 attn_output_weights = F.dropout(attn_output_weights, p=self.dropout)
 
@@ -201,48 +208,73 @@ class EncoderLayer(nn.Module):
         return x
 
 
-class TransformerLayer(nn.Module):
+class DecoderLayer(nn.Module):
     def __init__(self, config):
         super().__init__()
-        self.embed_dim = config.embed_dim
-        self.num_head = config.num_head
-        self.hidden_dim = config.hidden_dim
-        self.dropout = config.dropout
+        self.self_attention = MultiheadAttentionWithRoPE(config.embed_dim, config.num_head, config.dropout, True, False)
+        self.cross_attention = MultiheadAttentionWithRoPE(config.embed_dim, config.num_head, config.dropout, True, False)
 
-        self.temporal_attention = MultiheadAttentionWithRoPE(self.embed_dim, self.num_head, self.dropout, True, True)
-        self.social_attention = MultiheadAttentionWithRoPE(self.embed_dim, self.num_head, self.dropout, True, False)
-
-        self.norm1 = nn.RMSNorm(normalized_shape=self.embed_dim)
-        self.norm2 = nn.RMSNorm(normalized_shape=self.embed_dim)
-        self.norm3 = nn.RMSNorm(normalized_shape=self.embed_dim)
+        self.norm1 = nn.RMSNorm(normalized_shape=config.embed_dim)
+        self.norm2 = nn.RMSNorm(normalized_shape=config.embed_dim)
+        self.norm3 = nn.RMSNorm(normalized_shape=config.embed_dim)
 
         self.mlp = SwiGLU(config)
 
-        self.dropout1 = nn.Dropout(self.dropout)
-        self.dropout2 = nn.Dropout(self.dropout)
-        self.dropout3 = nn.Dropout(self.dropout)
+        self.dropout1 = nn.Dropout(config.dropout)
+        self.dropout2 = nn.Dropout(config.dropout)
+        self.dropout3 = nn.Dropout(config.dropout)
 
-    def forward(self, x, temporal_mask=None, social_mask=None, distance_bias=None):
-        """
-        :param x: (N, A, T, D)
-        :param temporal_mask:
-        :param social_mask:
-        :return:
-        """
-        N, A, T, D = x.shape
-
-        # attend on time
-        x = x.reshape(N * A, T, D)
-        norm_x = self.norm1(x)
-        x = x + self.dropout1(self.temporal_attention(norm_x, norm_x, norm_x, attn_mask=temporal_mask)[0])
-
-        # attend on space (only on last timeframe)
-        x = x.reshape(N, A, T, D).transpose(1, 2).reshape(N * T, A, D)
-        norm_x = self.norm2(x)
-        x = x + self.dropout2(self.social_attention(norm_x, norm_x, norm_x, attn_mask=social_mask, distance_bias=distance_bias)[0])
-
-        x = x.reshape(N, T, A, D).transpose(1, 2)
-        x = x + self.dropout3(self.mlp(self.norm3(x)))
+    def forward(self, q, kv):
+        norm_q = self.norm1(q)
+        q = self.dropout1(q + self.self_attention(norm_q, norm_q, norm_q)[0])
+        norm_q = self.norm2(q)
+        q = self.dropout2(q + self.cross_attention(norm_q, kv, kv)[0])
+        q = q + self.dropout3(self.mlp(self.norm3(q)))
+        return q
 
 
-        return x
+# class TransformerLayer(nn.Module):
+#     def __init__(self, config):
+#         super().__init__()
+#         self.embed_dim = config.embed_dim
+#         self.num_head = config.num_head
+#         self.hidden_dim = config.hidden_dim
+#         self.dropout = config.dropout
+#
+#         self.temporal_attention = MultiheadAttentionWithRoPE(self.embed_dim, self.num_head, self.dropout, True, True)
+#         self.social_attention = MultiheadAttentionWithRoPE(self.embed_dim, self.num_head, self.dropout, True, False)
+#
+#         self.norm1 = nn.RMSNorm(normalized_shape=self.embed_dim)
+#         self.norm2 = nn.RMSNorm(normalized_shape=self.embed_dim)
+#         self.norm3 = nn.RMSNorm(normalized_shape=self.embed_dim)
+#
+#         self.mlp = SwiGLU(config)
+#
+#         self.dropout1 = nn.Dropout(self.dropout)
+#         self.dropout2 = nn.Dropout(self.dropout)
+#         self.dropout3 = nn.Dropout(self.dropout)
+#
+#     def forward(self, x, temporal_mask=None, social_mask=None, distance_bias=None):
+#         """
+#         :param x: (N, A, T, D)
+#         :param temporal_mask:
+#         :param social_mask:
+#         :return:
+#         """
+#         N, A, T, D = x.shape
+#
+#         # attend on time
+#         x = x.reshape(N * A, T, D)
+#         norm_x = self.norm1(x)
+#         x = x + self.dropout1(self.temporal_attention(norm_x, norm_x, norm_x, attn_mask=temporal_mask)[0])
+#
+#         # attend on space (only on last timeframe)
+#         x = x.reshape(N, A, T, D).transpose(1, 2).reshape(N * T, A, D)
+#         norm_x = self.norm2(x)
+#         x = x + self.dropout2(self.social_attention(norm_x, norm_x, norm_x, attn_mask=social_mask, distance_bias=distance_bias)[0])
+#
+#         x = x.reshape(N, T, A, D).transpose(1, 2)
+#         x = x + self.dropout3(self.mlp(self.norm3(x)))
+#
+#
+#         return x

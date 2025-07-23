@@ -96,7 +96,7 @@ def train(model: nn.Module, train_data: torch.tensor, val_data: torch.tensor, co
                 folder_path=run.name,
                 repo_id=config.huggingface_repo,
                 path_in_repo=f"{run.name}",
-                token="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"
+                token=""
             )
 
         run.log({"Train Loss": mean_train_loss, "Val Loss": mean_val_loss, "Learning Rate": scheduler.get_last_lr()[0]})
@@ -123,13 +123,14 @@ def train_w_social_attn(model: nn.Module, train_data: torch.tensor, val_data: to
 
         # training
         model.train()
-        for traj, y_mask, gt_traj, invalid_entries in train_pbar:
-            traj, y_mask, gt_traj, invalid_entries = traj.to(device), y_mask.to(device), gt_traj.to(device), invalid_entries.to(device)
+        for traj, gt_traj, invalid_entries in train_pbar:
+            traj, gt_traj, invalid_entries = traj.to(device), gt_traj.to(device), invalid_entries.to(device)
+            y_mask = ~invalid_entries[:, 0, 50:]
             input_traj = traj[:, :, :-60]
 
             optimizer.zero_grad()
 
-            pred = model(input_traj, invalid_entries)  # (N, pred_frame, 5)
+            pred = model(input_traj, invalid_entries[:, :, :50])  # (N, pred_frame, 5)
 
             loss = loss_fn(pred[y_mask], gt_traj[y_mask])
             loss /= pred.shape[0]
@@ -144,11 +145,12 @@ def train_w_social_attn(model: nn.Module, train_data: torch.tensor, val_data: to
         # validation
         model.eval()
         with torch.no_grad():
-            for traj, y_mask, gt_traj, invalid_entries in tqdm(val_dataloader):
-                traj, y_mask, gt_traj, invalid_entries = traj.to(device), y_mask.to(device), gt_traj.to(device), invalid_entries.to(device)
+            for traj, gt_traj, invalid_entries in tqdm(val_dataloader):
+                traj, gt_traj, invalid_entries = traj.to(device), gt_traj.to(device), invalid_entries.to(device)
+                y_mask = ~invalid_entries[:, 0, 50:]
                 input_traj = traj[:, :, :-60]
 
-                pred = model(input_traj, invalid_entries)  # (N, 60, 2)
+                pred = model(input_traj, invalid_entries[:, :, :50])  # (N, 60, 2)
                 loss = val_loss_fn(pred[y_mask], gt_traj[y_mask])
                 val_loss.append(loss.item())
 
@@ -165,13 +167,13 @@ def train_w_social_attn(model: nn.Module, train_data: torch.tensor, val_data: to
             if epoch % 2 == 0:
                 torch.save(model.state_dict(), os.path.join(run.name, f"{run.name}_{epoch}_{mean_val_loss:.2f}.pt"))
 
-        if epoch % 4 == 0:
-            api.upload_folder(
-                folder_path=run.name,
-                repo_id=config.huggingface_repo,
-                path_in_repo=f"{run.name}",
-                token="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"
-            )
+        # if epoch % 4 == 0:
+        #     api.upload_folder(
+        #         folder_path=run.name,
+        #         repo_id=config.huggingface_repo,
+        #         path_in_repo=f"{run.name}",
+        #         
+        #     )
 
         run.log({"Train Loss": mean_train_loss, "Val Loss": mean_val_loss, "Learning Rate": scheduler.get_last_lr()[0]})
         print(f"Epoch {epoch}: Train Loss = {mean_train_loss:.4f}, Val Loss = {np.mean(val_loss):.4f}\n")
@@ -194,11 +196,12 @@ if __name__ == "__main__":
     parser.add_argument("--epoch", default=120, type=int)
     parser.add_argument("--num_buckets", default=32, type=int)
     parser.add_argument("--split_val", action="store_true")
+    parser.add_argument("--map_encoder_layers", default=2, type=int)
     config = parser.parse_args()
 
-    #os.environ['WANDB_MODE'] = 'offline'
+    os.environ['WANDB_MODE'] = 'offline'
     timestamp = datetime.now().strftime("%Y%m%d_%H%M")
-    wandb.login(key="8b3e0d688aad58e8826aa06cbd342439d583cdc0")
+    wandb.login(key="")
     run = wandb.init(
         entity="d0703887",
         project="CSE251b-Trajectory Forecasting",
@@ -221,7 +224,8 @@ if __name__ == "__main__":
                 },
     )
 
-    model = SequentialEncoder(config)
+    #model = SequentialEncoder(config)
+    model = EncoderDecoder(config)
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     split_val = config.split_val
     data = torch.tensor(np.load(os.path.join(config.dataset_path, "train.npz"))["data"], dtype=torch.float32)
