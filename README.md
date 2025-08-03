@@ -18,8 +18,10 @@ Since dataset's size isn't large enough to train a translation and rotation vari
 Specifically, we rotate and translate the coordinate to make ego agent always **at (0, 0) and facing positive x-axis**. This help model focus on relative motion patterns, improve its ability to generalize across varied traffic scenarios.
 | Original Coordinate System(orange trajectory denote target agent) | Coordinate System after rotation and translation|
 |-|-|
-| ![5](https://hackmd.io/_uploads/HyUmYigBxg.png =300x300) |![5_rot](https://hackmd.io/_uploads/HyKXtolSgg.png =300x300) |
-| ![22](https://hackmd.io/_uploads/rJVehseHgx.png =300x300) |![22_rot](https://hackmd.io/_uploads/SyCehjerlg.png  =300x300)
+| <img width="400" height="400" alt="5" src="https://github.com/user-attachments/assets/2c8daf06-e913-4ec6-acb6-bf40683e464d" /> | <img width="400" height="400" alt="5_rot" src="https://github.com/user-attachments/assets/70ab59d7-7af8-4316-9d56-f554ae2c4ce6" /> |
+| <img width="400" height="400" alt="22" src="https://github.com/user-attachments/assets/a1742290-5d98-4531-8f19-7cc5ed5f072e" /> | <img width="400" height="400" alt="22_rot" src="https://github.com/user-attachments/assets/499109e2-65dd-4639-bd59-1017a6fcd9fa" />
+
+
 
 ## Method
 ### Temporal Attention
