@@ -36,7 +36,8 @@ To encode pairwise spatial relationships, we adopt relative positional embedding
 
 ### Model Architecture
 We implement a **transformer-based encoder** that perform temporal attention and spatial attention inside:
-<center><img src="https://hackmd.io/_uploads/By5sM3gHxg.png" /></center>
+<center><img src= "https://github.com/user-attachments/assets/ce792204-58a8-4297-aeab-fc9bb6464361"/></center>
+
 
 This encoder predict the future trajectory of target agent in an end-to-end fashion. A lightweight MLP project informative embedding after temporal and spatial attention into future trajectory.
 
